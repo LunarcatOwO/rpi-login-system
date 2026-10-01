@@ -78,7 +78,7 @@ class AttendanceService:
 
     def user_for_tag(self, uid: str) -> dict:
         with self.db.transaction() as cur:
-            tag = repo.get_tag(cur, uid)
+            tag = repo.find_tag(cur, uid)
             if not tag or not tag["is_active"]:
                 raise AttendanceError("Card not registered. Ask an admin to enroll it.")
             user = repo.get_user(cur, tag["user_id"])

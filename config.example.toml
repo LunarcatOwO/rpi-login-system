@@ -11,10 +11,22 @@ name = "nfc_login"
 mode = "pi"                     # "pi" for the real reader + keypad, "simulated" for a PC
 
 [hardware.nfc]
+reader = "pn532"                # or "mfrc522" for the legacy RC522 (docs/legacy.md)
 write_tags = true               # write ID / time / rank / link onto the card after each scan
 poll_timeout_seconds = 0.5
 
+[hardware.nfc.mfrc522]
+spi_bus = 0
+spi_device = 0
+rst_pin = 25                    # BCM
+
+[hardware.lcd]
+enabled = false                 # legacy 16x2 I2C LCD; always on in headless mode
+i2c_bus = 1
+address = 0x27
+
 [hardware.keypad]
+enabled = true
 # BCM pin numbers from the Da Vinci Kit "2.1.5 Keypad" lesson.
 rows = [18, 23, 24, 25]
 cols = [10, 22, 27, 17]
@@ -32,6 +44,7 @@ min_scan_interval_seconds = 10  # ignore the same card again within this window
 max_session_hours = 12          # longer sessions are treated as a forgotten sign-out (0 credit)
 
 [ui]
+mode = "touchscreen"            # or "headless": LCD + keypad + web page, no screen
 fullscreen = true
 width = 800
 height = 480

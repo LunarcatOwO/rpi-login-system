@@ -69,3 +69,40 @@ def test_sections_must_not_share_keys(tmp_path):
                     '[[sections]]\nletter = "B"\nname = "y"\nkey = "A"\n')
     with pytest.raises(ValueError):
         load_config(path)
+
+
+def test_example_config_loads():
+    config = load_config("config.example.toml")
+    assert config.hardware["nfc"]["reader"] == "pn532"
+    assert config.hardware["lcd"]["address"] == 0x27
+
+
+def test_rc522_and_default_keypad_pins_clash():
+    from nfc_login.hardware import create_keypad
+    config = load_config("/nonexistent.toml")
+    config.hardware["nfc"]["reader"] = "mfrc522"
+    with pytest.raises(ValueError, match="RC522"):
+        create_keypad(config)
+    config.hardware["keypad"]["enabled"] = False
+    assert create_keypad(config) is None
+
+
+def test_lcd_output_lines():
+    from types import SimpleNamespace
+
+    from nfc_login.hardware.lcd1602 import to_lcd_text
+    from nfc_login.kiosk.controller import Screen
+    from nfc_login.ui.lcd_output import LcdOutput
+
+    shown = []
+    lcd = SimpleNamespace(show=lambda a, b="": shown.append((a, b)))
+    controller = SimpleNamespace(state="idle", idle_screen=lambda: Screen("Tap your card"))
+    out = LcdOutput(lcd, controller)
+    out.show(Screen("Welcome, Taylor!", ["", "Signed in at 16:45"]))
+    out.show(Screen("Your PIN", ["Then press #"], entry="••"))
+    out.show(Screen("Tap your card"))
+    assert shown[0] == ("Welcome, Taylor!", "Signed in at 16:45")
+    assert shown[1] == ("Your PIN", ">••")
+    assert shown[2][0] == "Tap your card"
+    assert to_lcd_text(">••") == ">**" + " " * 13
+    assert len(to_lcd_text("A very long title that won't fit")) == 16

@@ -27,10 +27,21 @@ DEFAULTS: dict = {
         # "pi" uses the real PN532 + keypad, "simulated" runs on any computer.
         "mode": "pi",
         "nfc": {
+            # "pn532" (I2C, recommended) or "mfrc522" (the legacy RC522 on SPI).
+            "reader": "pn532",
             "write_tags": True,
             "poll_timeout_seconds": 0.5,
+            "mfrc522": {"spi_bus": 0, "spi_device": 0, "rst_pin": 25},
+        },
+        # 16x2 I2C LCD from the legacy system. Optional with the touchscreen,
+        # and the only display in headless mode.
+        "lcd": {
+            "enabled": False,
+            "i2c_bus": 1,
+            "address": 0x27,
         },
         "keypad": {
+            "enabled": True,
             # BCM pin numbers, matching the Da Vinci Kit "2.1.5 Keypad" lesson.
             "rows": [18, 23, 24, 25],
             "cols": [10, 22, 27, 17],
@@ -54,6 +65,9 @@ DEFAULTS: dict = {
         "max_session_hours": 12,
     },
     "ui": {
+        # "touchscreen" (Tkinter window) or "headless" (LCD + web page only,
+        # like the legacy system).
+        "mode": "touchscreen",
         "fullscreen": True,
         "width": 800,
         "height": 480,
