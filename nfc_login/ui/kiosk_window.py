@@ -4,8 +4,8 @@ Layout:
     +-------------------------------------------------------------+
     | NFC Sign In            Season 2026              16:42:07    |
     +--------------------------------------+----------------------+
-    |  Welcome, Taylor!                      | [Here now 4][Leaders]|
-    |  Signed in at ...                    |  A07 Taylor   1h 02m   |
+    |  Welcome, Taylor!                    | [Here now 4][Leaders]|
+    |  Signed in at ...                    |  A07 Taylor 1h 02m   |
     |  ID A07 · Season 2026: 12h 30m       |  B03 Alex   0h 41m   |
     |  ...                                 |  ...                 |
     +--------------------------------------+----------------------+

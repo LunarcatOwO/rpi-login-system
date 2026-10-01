@@ -57,7 +57,7 @@ def classic_bytes(fake: FakePN532) -> bytes:
 
 
 def test_classic_card_from_the_legacy_system_is_written():
-    fake = FakePN532(bytes.fromhex("22DD51C1"))      # the MIFARE Classic 1K from the legacy system
+    fake = FakePN532(bytes.fromhex("22DD51C1"))      # a MIFARE Classic 1K from the legacy system
     reader = PN532Reader(pn532=fake)
     assert reader.read_uid() == "22DD51C1"
     assert reader.is_classic()
