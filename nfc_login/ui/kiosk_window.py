@@ -54,11 +54,12 @@ BOARD_REFRESH_MS = 60_000
 
 class KioskWindow:
     def __init__(self, root: tk.Tk, controller: KioskController, ui_config: dict,
-                 simulated_reader=None):
+                 simulated_reader=None, mirrors: list | None = None):
         self.root = root
         self.controller = controller
         self.cfg = ui_config
         self.events: queue.Queue = queue.Queue()
+        self.mirrors = mirrors or []     # e.g. the legacy 16x2 LCD
         self._revert_job = None
         self._keys: queue.Queue = queue.Queue()
         self._tab = "here"
@@ -173,6 +174,11 @@ class KioskWindow:
         self.events.put(("screen", screen))
 
     def show(self, screen: Screen) -> None:
+        for mirror in self.mirrors:
+            try:
+                mirror.show(screen)
+            except Exception:
+                log.exception("mirror display failed")
         self.title_label.config(text=screen.title, fg=COLORS.get(screen.tone, COLORS["text"]))
         self.lines_label.config(text="\n".join(screen.lines))
         self.entry_label.config(text=f"> {screen.entry}" if screen.entry is not None else "")

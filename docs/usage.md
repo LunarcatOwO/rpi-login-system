@@ -136,6 +136,7 @@ Run on the Pi from the repo folder (over SSH is fine):
 | `sessions open` | Who's signed in now |
 | `sessions sign-out-all` | Sign everyone out, crediting time |
 | `sessions close-stale` | Close sessions older than `max_session_hours` with no credit |
+| `import-legacy --legacy-config PATH [--sections A] [--dry-run]` | Import from the old attendance system ([legacy.md](legacy.md)) |
 
 Times for `hours` can be written `1h30m`, `2h`, `45m` or `1:30`.
 
