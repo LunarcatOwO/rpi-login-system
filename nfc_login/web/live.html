@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Who's Here</title>
+<style>
+:root { color-scheme: light dark; --bg:#f5f7fa; --card:#fff; --text:#17202a; --muted:#5b6876;
+        --line:#dde3ea; --accent:#2f7de1; --ok:#1f9d55; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#101418; --card:#1b2129; --text:#e8edf2; --muted:#8a97a6; --line:#2c3440; } }
+* { box-sizing: border-box; }
+body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--text); }
+main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+header { display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px; }
+h1 { font-size: 1.5rem; margin: 8px 0; }
+h2 { font-size: 1.1rem; margin: 0 0 10px; }
+.count { font-size: 2.6rem; font-weight: 700; color: var(--ok); line-height: 1; }
+.muted { color: var(--muted); }
+.grid { display:grid; grid-template-columns: 2fr 1fr; gap:16px; }
+@media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+.card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
+.sections { display:grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap:12px; }
+.section h3 { margin:0 0 6px; font-size:1rem; display:flex; justify-content:space-between; }
+.person { display:flex; justify-content:space-between; padding:6px 0; border-top:1px solid var(--line); }
+.person .id { color:var(--muted); font-variant-numeric: tabular-nums; margin-right:6px; }
+.person .t { font-variant-numeric: tabular-nums; }
+table { width:100%; border-collapse:collapse; }
+td { padding:6px 4px; border-top:1px solid var(--line); font-variant-numeric: tabular-nums; }
+td.r { text-align:right; }
+.dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--ok); margin-right:6px; }
+.stale .dot { background:#d64545; }
+a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Who's here <span class="muted" id="season"></span></h1>
+    <div class="muted" id="live"><span class="dot"></span><span id="updated">connecting…</span></div>
+  </header>
+  <div class="grid">
+    <section class="card">
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:12px">
+        <span class="count" id="count">–</span><span class="muted">signed in now</span>
+      </div>
+      <div class="sections" id="sections"></div>
+    </section>
+    <section class="card">
+      <h2>Leaderboard</h2>
+      <table id="board"></table>
+    </section>
+  </div>
+  <p class="muted" style="margin-top:16px"><a href="/admin">Admin</a></p>
+</main>
+<script>
+const REFRESH_MS = {{REFRESH_MS}};
+let data = null, fetchedAt = 0, lastOk = 0;
+
+function dur(s) {
+  s = Math.max(0, Math.floor(s));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h + "h " + String(m).padStart(2, "0") + "m";
+}
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+function render() {
+  if (!data) return;
+  const extra = (Date.now() - fetchedAt) / 1000;  // tick durations between fetches
+  document.getElementById("season").textContent = "· Season " + data.season;
+  document.getElementById("count").textContent = data.here.length;
+
+  const wrap = document.getElementById("sections");
+  wrap.replaceChildren();
+  for (const s of data.sections) {
+    const people = data.here.filter(p => p.section === s.letter);
+    const box = el("div", "section");
+    const h = el("h3");
+    h.append(el("span", "", s.letter + " · " + s.name), el("span", "muted", people.length));
+    box.append(h);
+    if (!people.length) box.append(el("div", "muted", "Nobody"));
+    for (const p of people) {
+      const row = el("div", "person");
+      const left = el("span");
+      left.append(el("span", "id", p.code), document.createTextNode(p.name));
+      row.append(left, el("span", "t", dur(p.seconds + extra)));
+      box.append(row);
+    }
+    wrap.append(box);
+  }
+
+  const board = document.getElementById("board");
+  board.replaceChildren();
+  for (const r of data.leaderboard.slice(0, 20)) {
+    const tr = el("tr");
+    tr.append(el("td", "", r.rank), el("td", "", r.code), el("td", "", r.name),
+              el("td", "r", r.total));
+    board.append(tr);
+  }
+  if (!data.leaderboard.length) board.append(el("tr")).append(el("td", "muted", "No one yet"));
+
+  const stale = Date.now() - lastOk > REFRESH_MS * 3;
+  document.getElementById("live").classList.toggle("stale", stale);
+  document.getElementById("updated").textContent =
+    stale ? "connection lost, retrying…" : "live · updated " + new Date(lastOk).toLocaleTimeString();
+}
+
+async function poll() {
+  try {
+    const res = await fetch("/api/status", { cache: "no-store" });
+    if (res.ok) { data = await res.json(); fetchedAt = lastOk = Date.now(); }
+  } catch (e) { /* keep showing the last data */ }
+  render();
+}
+
+poll();
+setInterval(poll, REFRESH_MS);
+setInterval(render, 1000);
+</script>
+</body>
+</html>
