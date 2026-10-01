@@ -32,7 +32,7 @@ settings                  key/value (admin PIN hash)
 | `user_id` | Owner |
 | `enrolled_at` | |
 | `is_active` | 0 after `tag remove` |
-| `legacy_key` | The number the legacy RC522 system used for this card. A scan whose UID isn't found is matched on this ([legacy.md](legacy.md)). |
+| `legacy_key` | The number the legacy system stored for this card. A scan whose UID isn't found is matched on this ([legacy.md](legacy.md)). |
 
 ### `seasons`
 | Column | |
