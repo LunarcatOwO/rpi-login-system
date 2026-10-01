@@ -110,13 +110,21 @@ class PN532Reader:
     def _write_classic(self, data: bytes) -> None:
         data += b"\x00" * (-len(data) % CLASSIC_BLOCK_SIZE)
         chunks = [data[i:i + CLASSIC_BLOCK_SIZE] for i in range(0, len(data), CLASSIC_BLOCK_SIZE)]
+        blocks = list(zip(classic_data_blocks(), chunks))
+        # Check every sector's key before writing anything, so a card with a
+        # changed key part-way through isn't left half rewritten.
+        for sector in sorted({block // 4 for block, _ in blocks}):
+            self._auth_classic(sector * 4)
         authed_sector = None
-        for block, chunk in zip(classic_data_blocks(), chunks):
+        for block, chunk in blocks:
             sector = block // 4
             if sector != authed_sector:
-                if not self._pn532.mifare_classic_authenticate_block(
-                        self._uid, block, CLASSIC_AUTH_A, CLASSIC_KEY):
-                    raise TagWriteError(f"sector {sector} doesn't use the default key")
+                self._auth_classic(block)
                 authed_sector = sector
             if not self._pn532.mifare_classic_write_block(block, chunk):
                 raise TagWriteError(f"write failed at block {block} (card moved?)")
+
+    def _auth_classic(self, block: int) -> None:
+        if not self._pn532.mifare_classic_authenticate_block(
+                self._uid, block, CLASSIC_AUTH_A, CLASSIC_KEY):
+            raise TagWriteError(f"sector {block // 4} doesn't use the default key")
