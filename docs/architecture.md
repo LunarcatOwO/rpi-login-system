@@ -20,14 +20,18 @@ nfc_login/
 │   ├── attendance.py   sign in/out toggle, stats, sign-out-all, stale clean-up
 │   ├── leaderboard.py  ranking
 │   ├── seasons.py      season reset + CSV archive
-│   ├── users.py        users, cards, admin PIN
+│   ├── users.py        users, section IDs, cards, admin PIN
+│   ├── ids.py          A07-style user IDs
 │   ├── pins.py         PIN hashing
 │   └── timefmt.py      "12h 34m" and timestamp formatting
 ├── kiosk/
 │   ├── controller.py   what a scan or key press does; returns a Screen
 │   └── nfc_worker.py   thread: poll reader → controller → screen
 ├── ui/
-│   └── kiosk_window.py Tkinter window for 800x480
+│   └── kiosk_window.py Tkinter window for 800x480 (here-now + leaderboard tabs)
+├── web/
+│   ├── server.py       live page, JSON API, admin page (stdlib http.server)
+│   └── live.html       the live "who's here" page (polls /api/status)
 └── admin/
     └── cli.py          python -m nfc_login.admin
 ```
@@ -35,7 +39,7 @@ nfc_login/
 Each layer only talks to the one below it:
 
 ```
-ui / admin CLI
+ui / web page / admin CLI
       │
 kiosk controller ── hardware (reader, keypad)
       │                  │
@@ -67,6 +71,8 @@ kiosk controller ── hardware (reader, keypad)
 - **keypad:** scans the keypad matrix every 50 ms (real hardware only).
 - **keys:** handles key presses in order, so PIN hashing and DB calls never
   freeze the screen.
+- **web:** the HTTP server for the live page and admin page (one short thread
+  per request).
 
 The controller holds a lock, so a card scan and a key press never run at the
 same time.
@@ -74,6 +80,7 @@ same time.
 ## Testing
 
 `tests/` covers NDEF encoding, card payload sizing, ranking, PIN hashing,
-config loading, sign-in/out rules, season resets and the keypad menus. The
+config loading, user IDs, sign-in/out rules, hour adjustments, season resets,
+the keypad menus and the web page (live data, admin login, adjustments). The
 database tests run against a real MariaDB (see the README); the controller
 tests use the simulated reader.

@@ -32,7 +32,9 @@ class WrongPinError(AttendanceError):
 
 @dataclass
 class UserStats:
-    user_id: int
+    user_id: int                   # internal key
+    code: str                      # the user ID people see, e.g. A07
+    section: str
     username: str
     season_name: str
     total_seconds: int
@@ -88,7 +90,7 @@ class AttendanceService:
         with self.db.transaction() as cur:
             user = repo.get_user(cur, user_id)
         if not user or not user["is_active"]:
-            raise AttendanceError(f"No active user with ID {user_id}.")
+            raise AttendanceError("No active user with that ID.")
         if not user["pin_hash"]:
             raise AttendanceError("No PIN set for this user. Use your card.")
         if not verify_pin(pin, user["pin_hash"]):
@@ -110,7 +112,7 @@ class AttendanceService:
             # Lock the user row so two scans can't race each other.
             user = repo.get_user(cur, user_id, for_update=True)
             if not user or not user["is_active"]:
-                raise AttendanceError(f"No active user with ID {user_id}.")
+                raise AttendanceError("No active user with that ID.")
             season = repo.get_active_season(cur)
             if not season:
                 raise AttendanceError("No active season. Run: nfc_login.admin season new")
@@ -151,7 +153,7 @@ class AttendanceService:
         with self.db.transaction() as cur:
             user = repo.get_user(cur, user_id)
             if not user:
-                raise AttendanceError(f"No user with ID {user_id}.")
+                raise AttendanceError("No user with that ID.")
             season = repo.get_active_season(cur)
             entries = lb.leaderboard(cur, season["id"]) if season else []
             last = repo.get_last_session(cur, user_id)
@@ -159,6 +161,8 @@ class AttendanceService:
         entry = lb.find_entry(entries, user_id)
         return UserStats(
             user_id=user_id,
+            code=user["code"],
+            section=user["section"],
             username=user["username"],
             season_name=season["name"] if season else "-",
             total_seconds=entry.total_seconds if entry else 0,
@@ -183,6 +187,37 @@ class AttendanceService:
     def currently_signed_in(self) -> list[dict]:
         with self.db.transaction() as cur:
             return repo.list_open_sessions(cur)
+
+    # ------------------------------------------------------------ admin corrections
+
+    def adjust(self, user_id: int, seconds: int, reason: str = "", via: str = "cli") -> UserStats:
+        """Add (positive) or subtract (negative) time for the active season.
+
+        Recorded as its own row so every correction is visible and reversible.
+        A subtraction can't take someone below 0h 00m.
+        """
+        if seconds == 0:
+            raise AttendanceError("Enter an amount of time.")
+        with self.db.transaction() as cur:
+            user = repo.get_user(cur, user_id, for_update=True)
+            if not user or not user["is_active"]:
+                raise AttendanceError("No active user with that ID.")
+            season = repo.get_active_season(cur)
+            if not season:
+                raise AttendanceError("No active season.")
+            current = repo.user_season_total(cur, user_id, season["id"])
+            if current + seconds < 0:
+                raise AttendanceError(
+                    f"{user['username']} only has {timefmt.format_duration(current)} this season."
+                )
+            repo.add_adjustment(cur, user_id, season["id"], seconds, reason.strip()[:255],
+                                self.clock(), via)
+        return self.user_stats(user_id)
+
+    def recent_adjustments(self, limit: int = 50) -> list[dict]:
+        with self.db.transaction() as cur:
+            season = repo.get_active_season(cur)
+            return repo.list_adjustments(cur, season["id"], limit) if season else []
 
     # ------------------------------------------------------------ housekeeping
 

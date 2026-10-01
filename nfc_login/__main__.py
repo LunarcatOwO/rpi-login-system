@@ -13,6 +13,7 @@ from nfc_login.hardware.keypad import KeypadPoller
 from nfc_login.kiosk.controller import KioskController
 from nfc_login.kiosk.nfc_worker import NfcWorker
 from nfc_login.ui.kiosk_window import KioskWindow
+from nfc_login.web.server import start_in_background
 
 
 def main() -> None:
@@ -53,6 +54,7 @@ def main() -> None:
     simulated = reader if config.hardware["mode"] == "simulated" else None
     window = KioskWindow(root, controller, config.ui, simulated_reader=simulated)
 
+    start_in_background(services, config)
     NfcWorker(reader, controller, window.publish).start()
     if keypad is not None:
         KeypadPoller(keypad, window.press,

@@ -41,3 +41,32 @@ keypad_timeout_seconds = 30
 
 [seasons]
 archive_dir = "archive"         # CSV snapshots written on every season reset
+
+[web]
+# Live "who's here" page and admin page at http://<pi-address>:8080/
+enabled = true
+host = "0.0.0.0"
+port = 8080
+refresh_seconds = 3
+
+# Sections of people. A user's ID is their section letter plus a number (A07).
+# "key" is the keypad key that starts typing an ID in that section.
+[[sections]]
+letter = "A"
+name = "Section A"
+key = "A"
+
+[[sections]]
+letter = "B"
+name = "Section B"
+key = "B"
+
+[[sections]]
+letter = "C"
+name = "Section C"
+key = "C"
+
+[[sections]]
+letter = "D"
+name = "Section D"
+key = "D"

@@ -12,12 +12,17 @@ CREATE TABLE IF NOT EXISTS seasons (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- People who sign in. Users carry over from season to season.
+-- Their user ID is section letter + two-digit number, e.g. A07 (section 'A', number 7).
+-- `id` is only an internal key and is never shown.
 CREATE TABLE IF NOT EXISTS users (
     id          INT AUTO_INCREMENT PRIMARY KEY,
+    section     CHAR(1)      NOT NULL,
+    number      INT          NOT NULL,
     username    VARCHAR(64)  NOT NULL UNIQUE,
     pin_hash    VARCHAR(255) NULL,          -- optional keypad PIN (PBKDF2)
     is_active   TINYINT(1)   NOT NULL DEFAULT 1,
-    created_at  DATETIME     NOT NULL
+    created_at  DATETIME     NOT NULL,
+    UNIQUE KEY uq_users_code (section, number)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- NFC tags, keyed by the tag's factory UID. The UID is read-only on genuine
@@ -44,6 +49,21 @@ CREATE TABLE IF NOT EXISTS sessions (
     CONSTRAINT fk_sessions_season FOREIGN KEY (season_id) REFERENCES seasons(id),
     INDEX idx_sessions_user_season (user_id, season_id),
     INDEX idx_sessions_open (sign_out_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Manual corrections by an admin. Positive seconds add time, negative subtract.
+-- A season total is SUM(sessions.credited_seconds) + SUM(adjustments.seconds).
+CREATE TABLE IF NOT EXISTS adjustments (
+    id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id     INT          NOT NULL,
+    season_id   INT          NOT NULL,
+    seconds     INT          NOT NULL,
+    reason      VARCHAR(255) NOT NULL DEFAULT '',
+    created_at  DATETIME     NOT NULL,
+    created_via VARCHAR(16)  NOT NULL,      -- kiosk | web | cli
+    CONSTRAINT fk_adjustments_user   FOREIGN KEY (user_id)   REFERENCES users(id),
+    CONSTRAINT fk_adjustments_season FOREIGN KEY (season_id) REFERENCES seasons(id),
+    INDEX idx_adjustments_user_season (user_id, season_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Small key/value store (admin PIN hash, etc.).

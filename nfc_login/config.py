@@ -64,6 +64,21 @@ DEFAULTS: dict = {
     "seasons": {
         "archive_dir": "archive",
     },
+    # Sections of people, one per keypad letter key. The letter starts each
+    # user ID (A07, D12); "key" is the keypad key that types it.
+    "sections": [
+        {"letter": "A", "name": "Section A", "key": "A"},
+        {"letter": "B", "name": "Section B", "key": "B"},
+        {"letter": "C", "name": "Section C", "key": "C"},
+        {"letter": "D", "name": "Section D", "key": "D"},
+    ],
+    # Live "who's here" page and admin page, served by the kiosk on the LAN.
+    "web": {
+        "enabled": True,
+        "host": "0.0.0.0",
+        "port": 8080,
+        "refresh_seconds": 3,
+    },
 }
 
 
@@ -111,6 +126,14 @@ class Config:
     def seasons(self) -> dict:
         return self.data["seasons"]
 
+    @property
+    def sections(self) -> list[dict]:
+        return self.data["sections"]
+
+    @property
+    def web(self) -> dict:
+        return self.data["web"]
+
 
 def load_config(path: str | Path | None = None) -> Config:
     """Load the config file, merged over the defaults.
@@ -124,7 +147,22 @@ def load_config(path: str | Path | None = None) -> Config:
         with path.open("rb") as fh:
             override = tomllib.load(fh)
     data = _merge(DEFAULTS, override)
+    _check_sections(data["sections"])
     # Environment variables win for secrets so they can stay out of the file.
     if os.environ.get("NFC_LOGIN_DB_PASSWORD"):
         data["database"]["password"] = os.environ["NFC_LOGIN_DB_PASSWORD"]
     return Config(data)
+
+
+def _check_sections(sections: list[dict]) -> None:
+    letters = [s["letter"].upper() for s in sections]
+    keys = [s["key"].upper() for s in sections]
+    if len(set(letters)) != len(letters) or len(set(keys)) != len(keys):
+        raise ValueError("each section needs its own letter and its own keypad key")
+    for section in sections:
+        if len(section["letter"]) != 1 or not section["letter"].isalpha():
+            raise ValueError(f"section letter must be one letter: {section['letter']!r}")
+        if section["key"] == "*" or section["key"].isdigit():
+            raise ValueError("a section key can't be * or a digit (they're used for typing)")
+        section["letter"] = section["letter"].upper()
+        section["key"] = section["key"].upper()

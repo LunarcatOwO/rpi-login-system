@@ -34,5 +34,5 @@ def build_services(config: Config) -> Services:
             archive_dir=config.seasons["archive_dir"],
             max_session_hours=att["max_session_hours"],
         ),
-        users=UserService(db),
+        users=UserService(db, config.sections),
     )

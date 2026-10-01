@@ -2,7 +2,8 @@
 
     python3 -m nfc_login.admin --help
 
-Run it on the Pi (over SSH is fine). Commands that use the NFC reader
+Run it on the Pi (over SSH is fine). Users are referred to by their ID,
+a section letter plus number such as A07. Commands that use the NFC reader
 (`tag enroll` without --uid, `tag read`) need the kiosk service stopped first,
 since only one program can talk to the reader at a time.
 """
@@ -69,22 +70,23 @@ def cmd_set_admin_pin(s, args, config):
 
 def cmd_user_add(s, args, config):
     pin = _ask_pin() if args.pin else None
-    user_id = s.users.add(args.username, pin)
-    print(f"Created user {args.username!r} with ID {user_id}.")
-    print(f"Enroll a card: tap A on the kiosk keypad, or `tag enroll {user_id}`")
+    user = s.users.add(args.username, args.section, pin)
+    print(f"Created user {user['username']!r} with ID {user['code']}.")
+    print(f"Enroll a card at the kiosk (* → admin PIN → 1), or `tag enroll {user['code']}`")
 
 
 def cmd_user_list(s, args, config):
-    rows = [[u["id"], u["username"], "yes" if u["pin_hash"] else "no",
-             "active" if u["is_active"] else "inactive"]
+    names = s.users.section_names
+    rows = [[u["code"], u["username"], names.get(u["section"], u["section"]),
+             "yes" if u["pin_hash"] else "no", "active" if u["is_active"] else "inactive"]
             for u in s.users.list(include_inactive=args.all)]
-    _table(rows, ["ID", "Username", "PIN", "Status"])
+    _table(rows, ["ID", "Username", "Section", "PIN", "Status"])
 
 
 def cmd_user_show(s, args, config):
-    st = s.attendance.user_stats(args.user_id)
+    st = s.attendance.user_stats(s.users.get_by_code(args.code)["id"])
     rank = f"#{st.rank} of {st.ranked_users}" if st.rank else "-"
-    print(f"ID:            {st.user_id}")
+    print(f"ID:            {st.code}")
     print(f"Username:      {st.username}")
     print(f"Season:        {st.season_name}")
     print(f"Time:          {st.total_text}")
@@ -95,32 +97,33 @@ def cmd_user_show(s, args, config):
 
 
 def cmd_user_rename(s, args, config):
-    s.users.rename(args.user_id, args.username)
+    s.users.rename(args.code, args.username)
     print("Renamed.")
 
 
 def cmd_user_set_pin(s, args, config):
-    s.users.set_pin(args.user_id, None if args.clear else _ask_pin())
+    s.users.set_pin(args.code, None if args.clear else _ask_pin())
     print("PIN cleared." if args.clear else "PIN saved.")
 
 
 def cmd_user_deactivate(s, args, config):
-    s.users.set_active(args.user_id, False)
+    s.users.set_active(args.code, False)
     print("User deactivated (history kept, hidden from leaderboard, cards stop working).")
 
 
 def cmd_user_activate(s, args, config):
-    s.users.set_active(args.user_id, True)
+    s.users.set_active(args.code, True)
     print("User reactivated.")
 
 
 def cmd_tag_enroll(s, args, config):
+    target = s.users.get_by_code(args.code)
     reader = None
     uid = args.uid
     if not uid:
         reader, uid = _wait_for_card(config)
-    user = s.users.enroll_tag(uid, args.user_id)
-    print(f"Card {uid.upper()} enrolled for {user['username']} (ID {user['id']}).")
+    user = s.users.enroll_tag(uid, target["id"])
+    print(f"Card {uid.upper()} enrolled for {user['username']} ({user['code']}).")
     if reader and config.hardware["nfc"]["write_tags"]:
         from nfc_login.tags.payload import build_message
         try:
@@ -128,7 +131,7 @@ def cmd_tag_enroll(s, args, config):
             if capacity is None:
                 print("This card type can't store info (not an NTAG); it still works for sign-in.")
             else:
-                stats = s.attendance.user_stats(args.user_id)
+                stats = s.attendance.user_stats(target["id"])
                 reader.write_ndef(build_message(stats, config.tag["site_url"], capacity))
                 print("Card info written.")
         except Exception as exc:  # noqa: BLE001 - report and carry on
@@ -136,9 +139,9 @@ def cmd_tag_enroll(s, args, config):
 
 
 def cmd_tag_list(s, args, config):
-    rows = [[t["uid"], t["user_id"], t["username"], t["enrolled_at"],
+    rows = [[t["uid"], t["code"], t["username"], t["enrolled_at"],
              "active" if t["is_active"] else "removed"] for t in s.users.list_tags()]
-    _table(rows, ["UID", "User ID", "Username", "Enrolled", "Status"])
+    _table(rows, ["UID", "ID", "Username", "Enrolled", "Status"])
 
 
 def cmd_tag_remove(s, args, config):
@@ -184,7 +187,7 @@ def cmd_season_new(s, args, config):
 def cmd_season_leaderboard(s, args, config):
     season, entries = s.seasons.leaderboard(args.name)
     print(f"Season {season['name']}")
-    _table([[e.rank, e.user_id, e.username, timefmt.format_duration(e.total_seconds)]
+    _table([[e.rank, e.code, e.username, timefmt.format_duration(e.total_seconds)]
             for e in entries], ["Rank", "ID", "Username", "Time"])
 
 
@@ -195,13 +198,50 @@ def cmd_season_export(s, args, config):
 
 
 def cmd_sessions_open(s, args, config):
-    rows = [[r["user_id"], r["username"], r["sign_in_at"], r["sign_in_method"]]
+    rows = [[r["code"], r["username"], r["sign_in_at"], r["sign_in_method"]]
             for r in s.attendance.currently_signed_in()]
-    _table(rows, ["User ID", "Username", "Signed in", "Method"])
+    _table(rows, ["ID", "Username", "Signed in", "Method"])
 
 
 def cmd_sessions_sign_out_all(s, args, config):
     print(f"Signed out {s.attendance.sign_out_everyone()} user(s).")
+
+
+def _parse_duration(text: str) -> int:
+    """'1h30m', '2h', '45m', '1:30' -> seconds."""
+    t = text.strip().lower().replace(" ", "")
+    if ":" in t:
+        hours, minutes = t.split(":", 1)
+    else:
+        hours, _, rest = t.partition("h") if "h" in t else ("0", "", t)
+        minutes = rest.rstrip("m") or "0"
+    if not (hours or "0").isdigit() or not minutes.isdigit() or int(minutes) >= 60:
+        raise ValueError(f"Can't read {text!r}. Use e.g. 1h30m, 2h, 45m or 1:30.")
+    return (int(hours or 0) * 60 + int(minutes)) * 60
+
+
+def _adjust(s, args, sign: int):
+    user = s.users.get_by_code(args.code)
+    seconds = sign * _parse_duration(args.amount)
+    stats = s.attendance.adjust(user["id"], seconds, args.reason or "", via="cli")
+    verb = "Added" if sign > 0 else "Subtracted"
+    print(f"{verb} {timefmt.format_duration(abs(seconds))} for {stats.username} ({stats.code}).")
+    print(f"New season total: {stats.total_text}")
+
+
+def cmd_hours_add(s, args, config):
+    _adjust(s, args, +1)
+
+
+def cmd_hours_subtract(s, args, config):
+    _adjust(s, args, -1)
+
+
+def cmd_hours_history(s, args, config):
+    rows = [[a["created_at"], a["code"], a["username"],
+             ("+" if a["seconds"] > 0 else "-") + timefmt.format_duration(abs(a["seconds"])),
+             a["created_via"], a["reason"]] for a in s.attendance.recent_adjustments(args.limit)]
+    _table(rows, ["When", "ID", "Username", "Change", "From", "Reason"])
 
 
 def cmd_sessions_close_stale(s, args, config):
@@ -226,8 +266,9 @@ def build_parser() -> argparse.ArgumentParser:
                    ).set_defaults(func=cmd_set_admin_pin)
 
     user = sub.add_parser("user", help="manage users").add_subparsers(dest="action", required=True)
-    c = user.add_parser("add", help="create a user")
+    c = user.add_parser("add", help="create a user (gets the next free ID in the section)")
     c.add_argument("username")
+    c.add_argument("--section", required=True, help="section letter, e.g. A")
     c.add_argument("--pin", action="store_true", help="also set a keypad PIN")
     c.set_defaults(func=cmd_user_add)
     c = user.add_parser("list", help="list users")
@@ -237,21 +278,21 @@ def build_parser() -> argparse.ArgumentParser:
                                  ("deactivate", cmd_user_deactivate, "hide a user"),
                                  ("activate", cmd_user_activate, "un-hide a user")]:
         c = user.add_parser(name, help=helptext)
-        c.add_argument("user_id", type=int)
+        c.add_argument("code", help="user ID, e.g. A07")
         c.set_defaults(func=func)
     c = user.add_parser("rename", help="change a username")
-    c.add_argument("user_id", type=int)
+    c.add_argument("code", help="user ID, e.g. A07")
     c.add_argument("username")
     c.set_defaults(func=cmd_user_rename)
     c = user.add_parser("set-pin", help="set or clear a user's keypad PIN")
-    c.add_argument("user_id", type=int)
+    c.add_argument("code", help="user ID, e.g. A07")
     c.add_argument("--clear", action="store_true")
     c.set_defaults(func=cmd_user_set_pin)
 
     tag = sub.add_parser("tag", help="manage NFC cards").add_subparsers(dest="action",
                                                                          required=True)
     c = tag.add_parser("enroll", help="link a card to a user")
-    c.add_argument("user_id", type=int)
+    c.add_argument("code", help="user ID, e.g. A07")
     c.add_argument("--uid", help="card UID in hex (skip to read it from the reader)")
     c.set_defaults(func=cmd_tag_enroll)
     tag.add_parser("list", help="list cards").set_defaults(func=cmd_tag_list)
@@ -275,6 +316,19 @@ def build_parser() -> argparse.ArgumentParser:
     c = season.add_parser("export", help="write a season's CSV files to the archive folder")
     c.add_argument("name", nargs="?", help="season name (default: active)")
     c.set_defaults(func=cmd_season_export)
+
+    hours = sub.add_parser("hours", help="admin corrections to season time").add_subparsers(
+        dest="action", required=True)
+    for name, func, helptext in [("add", cmd_hours_add, "add time"),
+                                 ("subtract", cmd_hours_subtract, "subtract time")]:
+        c = hours.add_parser(name, help=helptext)
+        c.add_argument("code", help="user ID, e.g. A07")
+        c.add_argument("amount", help="e.g. 1h30m, 2h, 45m or 1:30")
+        c.add_argument("--reason", help="shown in the history")
+        c.set_defaults(func=func)
+    c = hours.add_parser("history", help="recent corrections this season")
+    c.add_argument("--limit", type=int, default=50)
+    c.set_defaults(func=cmd_hours_history)
 
     sessions = sub.add_parser("sessions", help="who is signed in").add_subparsers(
         dest="action", required=True)

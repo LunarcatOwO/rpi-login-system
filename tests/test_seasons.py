@@ -7,7 +7,7 @@ from nfc_login.services.seasons import SeasonError
 
 def test_season_reset_keeps_users_and_history(services, clock):
     attendance, seasons, users = services
-    uid = users.add("taylor")
+    uid = users.add("taylor", "A")["id"]
     users.enroll_tag("CAFE", uid)
     attendance.scan_tag("CAFE")
     clock.advance(hours=3)
@@ -35,6 +35,17 @@ def test_season_reset_keeps_users_and_history(services, clock):
     board_csv = next(p for p in summary.archive_files if p.name.endswith("leaderboard.csv"))
     rows = list(csv.DictReader(board_csv.open()))
     assert rows[0]["username"] == "taylor" and rows[0]["hours"] == "3" and rows[0]["minutes"] == "30"
+    assert rows[0]["user_id"] == "A01"
+
+
+def test_adjustments_stay_with_their_season(services):
+    attendance, seasons, users = services
+    uid = users.add("taylor", "A")["id"]
+    attendance.adjust(uid, 3600, "bonus")
+    seasons.start_new("2027")
+    assert attendance.user_stats(uid).total_seconds == 0
+    _season, board = seasons.leaderboard(seasons.list()[0]["name"])
+    assert board[0].total_seconds == 3600
 
 
 def test_duplicate_season_name_rejected(services):

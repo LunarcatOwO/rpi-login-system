@@ -1,4 +1,4 @@
-"""Leaderboard ranking, always computed fresh from the sessions table."""
+"""Leaderboard ranking, always computed fresh from the database."""
 
 from __future__ import annotations
 
@@ -11,7 +11,9 @@ from nfc_login.db import repository as repo
 class LeaderboardEntry:
     rank: int
     user_id: int
+    code: str
     username: str
+    section: str
     total_seconds: int
 
 
@@ -29,7 +31,8 @@ def rank_totals(rows: list[dict]) -> list[LeaderboardEntry]:
         if total != previous_total:
             rank = position
             previous_total = total
-        entries.append(LeaderboardEntry(rank, int(row["user_id"]), row["username"], total))
+        entries.append(LeaderboardEntry(rank, int(row["user_id"]), row["code"], row["username"],
+                                        row["section"], total))
     return entries
 
 

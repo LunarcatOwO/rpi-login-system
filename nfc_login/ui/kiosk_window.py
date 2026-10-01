@@ -4,13 +4,16 @@ Layout:
     +-------------------------------------------------------------+
     | NFC Sign In            Season 2026              16:42:07    |
     +--------------------------------------+----------------------+
-    |  Welcome, Taylor!                      |  Leaderboard         |
-    |  Signed in at ...                    |  1  Alex   40h 10m   |
-    |  Season 2026 total: 12h 30m          |  2  Taylor   12h 30m   |
+    |  Welcome, Taylor!                      | [Here now 4][Leaders]|
+    |  Signed in at ...                    |  A07 Taylor   1h 02m   |
+    |  ID A07 · Season 2026: 12h 30m       |  B03 Alex   0h 41m   |
     |  ...                                 |  ...                 |
     +--------------------------------------+----------------------+
-    | > typed keypad input           A admin  B ID+PIN  C my time |
+    | > typed keypad input       No card? ID on keypad: A B C D  * admin|
     +-------------------------------------------------------------+
+
+The right-hand panel has two touch tabs: who is signed in right now (live,
+refreshed every few seconds and after every scan) and the season leaderboard.
 
 Hardware threads never touch Tk directly: they put Screens on a queue that
 the Tk main loop drains.
@@ -32,6 +35,7 @@ log = logging.getLogger(__name__)
 COLORS = {
     "bg": "#101418",
     "panel": "#1b2129",
+    "tab": "#262e38",
     "text": "#e8edf2",
     "muted": "#8a97a6",
     "info": "#4aa3ff",
@@ -42,7 +46,10 @@ COLORS = {
 }
 
 # Computer keyboard -> keypad, for simulated mode (and handy with a USB keyboard).
-KEY_MAP = {"Return": "#", "KP_Enter": "#", "BackSpace": "*", "Escape": "D"}
+KEY_MAP = {"Return": "#", "KP_Enter": "#", "BackSpace": "*", "Escape": "*"}
+
+HERE_REFRESH_MS = 5_000
+BOARD_REFRESH_MS = 60_000
 
 
 class KioskWindow:
@@ -54,6 +61,9 @@ class KioskWindow:
         self.events: queue.Queue = queue.Queue()
         self._revert_job = None
         self._keys: queue.Queue = queue.Queue()
+        self._tab = "here"
+        self._here: list[dict] = []
+        self._board: list = []
         threading.Thread(target=self._key_loop, daemon=True, name="keys").start()
 
         root.title("NFC Sign In")
@@ -68,18 +78,18 @@ class KioskWindow:
         root.bind("<Key>", self._on_keyboard)
 
         self.show(controller.idle_screen())
-        self.refresh_leaderboard()
         self._tick_clock()
         self._drain_events()
         self._check_timeout()
-        self._periodic_leaderboard()
+        self._periodic_here()
+        self._periodic_board()
 
     # ------------------------------------------------------------ layout
 
     def _build(self, simulated_reader) -> None:
-        big = ("DejaVu Sans", 26, "bold")
-        normal = ("DejaVu Sans", 15)
-        small = ("DejaVu Sans", 12)
+        big = ("DejaVu Sans", 24, "bold")
+        normal = ("DejaVu Sans", 14)
+        small = ("DejaVu Sans", 11)
 
         header = tk.Frame(self.root, bg=COLORS["panel"])
         header.pack(fill="x")
@@ -94,32 +104,43 @@ class KioskWindow:
         body = tk.Frame(self.root, bg=COLORS["bg"])
         body.pack(fill="both", expand=True)
 
+        side = tk.Frame(body, bg=COLORS["panel"], width=300)
+        side.pack(side="right", fill="y", padx=(0, 10), pady=10)
+        side.pack_propagate(False)
+        tabs = tk.Frame(side, bg=COLORS["panel"])
+        tabs.pack(fill="x")
+        self.here_tab = tk.Button(tabs, command=lambda: self._select_tab("here"))
+        self.board_tab = tk.Button(tabs, text="Leaderboard",
+                                   command=lambda: self._select_tab("board"))
+        for button in (self.here_tab, self.board_tab):
+            button.config(font=("DejaVu Sans", 13, "bold"), relief="flat", bd=0,
+                          highlightthickness=0, pady=8, activebackground=COLORS["tab"],
+                          activeforeground=COLORS["text"])
+            button.pack(side="left", fill="x", expand=True)
+        self.side_label = tk.Label(side, font=("DejaVu Sans Mono", 12), anchor="nw",
+                                   justify="left", fg=COLORS["text"], bg=COLORS["panel"])
+        self.side_label.pack(fill="both", expand=True, padx=10, pady=8)
+
         status = tk.Frame(body, bg=COLORS["bg"])
         status.pack(side="left", fill="both", expand=True, padx=16, pady=12)
         self.title_label = tk.Label(status, font=big, anchor="w", justify="left",
-                                    bg=COLORS["bg"], wraplength=470)
+                                    bg=COLORS["bg"], wraplength=450)
         self.title_label.pack(fill="x")
         self.lines_label = tk.Label(status, font=normal, anchor="nw", justify="left",
-                                    fg=COLORS["text"], bg=COLORS["bg"], wraplength=470)
+                                    fg=COLORS["text"], bg=COLORS["bg"], wraplength=450)
         self.lines_label.pack(fill="both", expand=True, pady=(10, 0))
-
-        board = tk.Frame(body, bg=COLORS["panel"], width=280)
-        board.pack(side="right", fill="y", padx=(0, 12), pady=12)
-        board.pack_propagate(False)
-        tk.Label(board, text="Leaderboard", font=("DejaVu Sans", 15, "bold"),
-                 fg=COLORS["text"], bg=COLORS["panel"]).pack(anchor="w", padx=10, pady=(8, 4))
-        self.board_label = tk.Label(board, font=("DejaVu Sans Mono", 12), anchor="nw",
-                                    justify="left", fg=COLORS["text"], bg=COLORS["panel"])
-        self.board_label.pack(fill="both", expand=True, padx=10)
 
         footer = tk.Frame(self.root, bg=COLORS["panel"])
         footer.pack(fill="x")
-        self.entry_label = tk.Label(footer, font=("DejaVu Sans Mono", 16), fg=COLORS["prompt"],
-                                    bg=COLORS["panel"])
+        self.entry_label = tk.Label(footer, font=("DejaVu Sans Mono", 18, "bold"),
+                                    fg=COLORS["prompt"], bg=COLORS["panel"])
         self.entry_label.pack(side="left", padx=12, pady=6)
-        tk.Label(footer, text="A admin   B ID + PIN   C my time   D cancel", font=small,
+        keys = "  ".join(f"{s['letter']}" if s["key"] == s["letter"] else f"{s['key']}={s['letter']}"
+                         for s in self.controller.users.sections)
+        tk.Label(footer, text=f"No card? ID on keypad: {keys}    * admin", font=small,
                  fg=COLORS["muted"], bg=COLORS["panel"]).pack(side="right", padx=12)
 
+        self._select_tab("here")
         if simulated_reader is not None:
             self._build_simulator(simulated_reader)
 
@@ -133,9 +154,17 @@ class KioskWindow:
         entry.pack(side="left")
         tk.Button(sim, text="Tap card", command=lambda: reader.tap(uid_var.get())).pack(
             side="left", padx=6)
-        tk.Label(sim, text="Enter=#  Bksp=*  Esc=D",
-                 fg="#ffd27a", bg="#2a1f00").pack(side="left", padx=6)
+        tk.Label(sim, text="Enter=#  Bksp/Esc=*", fg="#ffd27a", bg="#2a1f00").pack(
+            side="left", padx=6)
         self._sim_entry = entry
+
+    def _select_tab(self, tab: str) -> None:
+        self._tab = tab
+        for name, button in (("here", self.here_tab), ("board", self.board_tab)):
+            active = name == tab
+            button.config(bg=COLORS["tab"] if active else COLORS["panel"],
+                          fg=COLORS["text"] if active else COLORS["muted"])
+        self._render_side()
 
     # ------------------------------------------------------------ updates
 
@@ -153,30 +182,41 @@ class KioskWindow:
         if screen.hold_seconds:
             self._revert_job = self.root.after(int(screen.hold_seconds * 1000), self._revert)
         if screen.refresh_leaderboard:
-            self.refresh_leaderboard()
+            self.refresh(board=True)
 
     def _revert(self) -> None:
         self._revert_job = None
         if self.controller.state == "idle":
             self.show(self.controller.idle_screen())
 
-    def refresh_leaderboard(self) -> None:
-        """Fetch the leaderboard off the UI thread, then display it."""
+    def refresh(self, board: bool = False) -> None:
+        """Fetch who's here (and optionally the leaderboard) off the UI thread."""
         def work():
             try:
                 attendance = self.controller.attendance
-                season = attendance.active_season_name()
-                entries = attendance.leaderboard(self.cfg["leaderboard_size"])
-                self.events.put(("leaderboard", (season, entries)))
+                here = attendance.currently_signed_in()
+                self.events.put(("here", here))
+                if board:
+                    season = attendance.active_season_name()
+                    entries = attendance.leaderboard(self.cfg["leaderboard_size"])
+                    self.events.put(("board", (season, entries)))
             except Exception:
-                log.exception("leaderboard refresh failed")
+                log.exception("refresh failed")
         threading.Thread(target=work, daemon=True).start()
 
-    def _show_leaderboard(self, season: str, entries) -> None:
-        self.season_label.config(text=f"Season {season}")
-        rows = [f"{e.rank:>2}  {e.username[:12]:<12} {timefmt.format_duration(e.total_seconds):>8}"
-                for e in entries]
-        self.board_label.config(text="\n".join(rows) or "No one yet")
+    def _render_side(self) -> None:
+        self.here_tab.config(text=f"Here now ({len(self._here)})")
+        if self._tab == "here":
+            now = datetime.now()
+            rows = []
+            for r in self._here:
+                elapsed = timefmt.format_duration(int((now - r["sign_in_at"]).total_seconds()))
+                rows.append(f"{r['code']} {r['username'][:12]:<12} {elapsed:>7}")
+            self.side_label.config(text="\n".join(rows) or "Nobody signed in yet")
+        else:
+            rows = [f"{e.rank:>2} {e.code} {e.username[:11]:<11} "
+                    f"{timefmt.format_duration(e.total_seconds):>8}" for e in self._board]
+            self.side_label.config(text="\n".join(rows) or "No one yet")
 
     # ------------------------------------------------------------ loops
 
@@ -186,8 +226,13 @@ class KioskWindow:
                 kind, payload = self.events.get_nowait()
                 if kind == "screen":
                     self.show(payload)
-                elif kind == "leaderboard":
-                    self._show_leaderboard(*payload)
+                elif kind == "here":
+                    self._here = payload
+                    self._render_side()
+                elif kind == "board":
+                    season, self._board = payload
+                    self.season_label.config(text=f"Season {season}")
+                    self._render_side()
         except queue.Empty:
             pass
         self.root.after(50, self._drain_events)
@@ -202,9 +247,14 @@ class KioskWindow:
             self.show(screen)
         self.root.after(1000, self._check_timeout)
 
-    def _periodic_leaderboard(self) -> None:
-        self.refresh_leaderboard()
-        self.root.after(60_000, self._periodic_leaderboard)
+    def _periodic_here(self) -> None:
+        # Live list: picks up sign-ins from the keypad, web admin and clean-up jobs too.
+        self.refresh()
+        self.root.after(HERE_REFRESH_MS, self._periodic_here)
+
+    def _periodic_board(self) -> None:
+        self.refresh(board=True)
+        self.root.after(BOARD_REFRESH_MS, self._periodic_board)
 
     # ------------------------------------------------------------ input
 
@@ -229,5 +279,9 @@ class KioskWindow:
         if getattr(self, "_sim_entry", None) is not None and event.widget is self._sim_entry:
             return
         key = KEY_MAP.get(event.keysym) or event.char.upper()
-        if key and key in "0123456789ABCD*#" and len(key) == 1:
+        # Typing a section letter (e.g. E) presses that section's keypad key (#).
+        for section in self.controller.users.sections:
+            if key == section["letter"]:
+                key = section["key"]
+        if len(key) == 1 and key in "0123456789ABCD*#":
             self.press(key)
