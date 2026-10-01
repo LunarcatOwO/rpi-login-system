@@ -10,10 +10,8 @@ nfc_login/
 │   ├── connection.py   Database: connections, transactions, schema apply
 │   └── repository.py   every SQL query, as small functions
 ├── hardware/
-│   ├── nfc_reader.py   PN532 over I2C: read UID, write NDEF to NTAG
+│   ├── nfc_reader.py   PN532 over I2C: read UID, write NDEF to NTAG / MIFARE Classic
 │   ├── keypad.py       Da Vinci Kit 4x4 keypad scanner + polling thread
-│   ├── mfrc522_reader.py  legacy RC522 reader (SPI)
-│   ├── lcd1602.py      legacy 16x2 I2C LCD
 │   └── simulated.py    fake reader for running on a PC
 ├── legacy/
 │   ├── rfid.py         legacy card numbers <-> UIDs
@@ -31,11 +29,9 @@ nfc_login/
 │   └── timefmt.py      "12h 34m" and timestamp formatting
 ├── kiosk/
 │   ├── controller.py   what a scan or key press does; returns a Screen
-│   ├── nfc_worker.py   thread: poll reader → controller → screen
-│   └── headless.py     no-touchscreen mode (LCD + keypad + web)
+│   └── nfc_worker.py   thread: poll reader → controller → screen
 ├── ui/
-│   ├── kiosk_window.py Tkinter window for 800x480 (here-now + leaderboard tabs)
-│   └── lcd_output.py   screens on the 16x2 LCD
+│   └── kiosk_window.py Tkinter window for 800x480 (here-now + leaderboard tabs)
 ├── web/
 │   ├── server.py       live page, JSON API, admin page (stdlib http.server)
 │   └── live.html       the live "who's here" page (polls /api/status)
@@ -88,6 +84,7 @@ same time.
 
 `tests/` covers NDEF encoding, card payload sizing, ranking, PIN hashing,
 config loading, user IDs, sign-in/out rules, hour adjustments, season resets,
+card writing on NTAG and MIFARE Classic (against a fake PN532),
 the keypad menus, the web page (live data, admin login, adjustments) and the
 legacy import (run against the legacy system's own schema). The
 database tests run against a real MariaDB (see the README); the controller

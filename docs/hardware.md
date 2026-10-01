@@ -13,7 +13,8 @@
 | microSD card (16 GB+), 5 V 3 A USB-C supply | |
 | 3D printed shell | Holds everything |
 
-Coming from the old RC522 + 16x2 LCD setup? See [legacy.md](legacy.md).
+Coming from the old attendance system? Its MIFARE Classic cards work on the
+PN532; see [legacy.md](legacy.md) to import its database.
 
 ## Pin map
 
@@ -100,20 +101,28 @@ Use **NTAG215** (504 bytes). NTAG213 (144 bytes) and NTAG216 (888 bytes)
 also work; on an NTAG213 a shorter summary is written (see
 [nfc-tags.md](nfc-tags.md)).
 
-The white MIFARE Classic cards that often come with PN532 kits still work for
-signing in (their UID is read), but nothing is written to them.
+MIFARE Classic 1K cards (the white cards that come with PN532 kits, and the
+legacy system's cards) also work. The card info is written to them too, but
+phones can't read it or open the link.
 
 ## Enclosure
 
-`RPI_CHEESE.STL` in the project library is a simple closed shell, about
-**232 x 89 x 130 mm** (128 triangles). Treat it as a starting point; it has
-no cut-outs yet. Things to add when modelling the final version:
+The 3D printed shell is in the project library under `enclosure/`, in three
+parts:
 
-- Screen window on the front face.
-- Keypad opening sized to your keypad (measure it), with its 8 wires routed
-  inside.
-- The PN532 V3 board (about 43 x 41 mm) mounted flat against the inside of the
-  top or front wall with a "tap here" mark outside. Keep the wall 2 mm or
-  thinner in front of the antenna and keep metal away from it.
-- USB-C power and Ethernet openings on the Pi side, plus some vent slots
-  (the Pi 4 runs warm with the screen on all day).
+| File | Part | Size (mm) |
+|---|---|---|
+| `RPI_CHEESE.STL` | Body | 232 x 89 x 130 |
+| `RPI_CHEESE_TOP.STL` | Top | 120 x 190 x 5 |
+| `RPI_CHEESE_TRAY.STL` | Tray | 82 x 103 x 10 |
+
+This is a work-in-progress version; a newer one will replace these files.
+The first single-piece draft is kept in `enclosure/previous/`.
+
+When placing parts:
+
+- Mount the PN532 V3 board (about 43 x 41 mm) flat against the inside of a
+  wall with a "tap here" mark outside. Keep the wall 2 mm or thinner in front
+  of the antenna and keep metal away from it.
+- Leave openings for USB-C power and Ethernet on the Pi side, plus some vent
+  slots (the Pi 4 runs warm with the screen on all day).

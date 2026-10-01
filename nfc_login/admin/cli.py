@@ -131,7 +131,7 @@ def cmd_tag_enroll(s, args, config):
         try:
             capacity = reader.ndef_capacity()
             if capacity is None:
-                print("This card type can't store info (not an NTAG); it still works for sign-in.")
+                print("This card type can't store info; it still works for sign-in.")
             else:
                 stats = s.attendance.user_stats(target["id"])
                 reader.write_ndef(build_message(stats, config.tag["site_url"], capacity))
@@ -152,8 +152,11 @@ def cmd_tag_remove(s, args, config):
 
 
 def cmd_tag_read(s, args, config):
-    _reader, uid = _wait_for_card(config)
+    reader, uid = _wait_for_card(config)
     print(f"UID: {uid}")
+    if hasattr(reader, "is_classic"):
+        print("Type: " + ("MIFARE Classic (phones can't read the link)" if reader.is_classic()
+                          else "NTAG / other 7-byte UID card"))
 
 
 def cmd_season_show(s, args, config):

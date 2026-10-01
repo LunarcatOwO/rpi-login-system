@@ -1,16 +1,11 @@
 # Legacy system support
 
 This project can replace the older attendance tracker at
-[aesom-e/attendance](https://github.com/aesom-e/attendance) (PHP + MariaDB,
-an RC522 RFID reader and a 16x2 LCD). It can:
-
-1. **run on the legacy hardware**: the RC522 reader and the 16x2 LCD, with or
-   without the touchscreen and keypad, and
-2. **import the legacy database**: users, their cards, current hours, past
-   seasons and the visit log.
-
-Old cards keep working: the import converts each stored `rfidKey` back into
-the card it came from.
+[aesom-e/attendance](https://github.com/aesom-e/attendance) (PHP + MariaDB
+with an RC522 reader). It doesn't run the old system or its hardware. It
+**imports the old database** (users, their cards, current hours, past seasons
+and the visit log), and **the old cards keep working** on the PN532: the
+import converts each stored `rfidKey` back into the card it came from.
 
 ## Importing the legacy database
 
@@ -71,103 +66,28 @@ which stores 5 bytes as one number: the card's 4 UID bytes plus a check byte.
   first 3 UID bytes. The card is stored under its old number and matched on
   its first scan, which also saves its full UID.
 
-Matching by old number also works the other way around. If you keep an RC522
-reader, cards enrolled on a PN532 still match.
+### Old cards on the PN532
 
-## Running on the legacy hardware
+The legacy cards are **MIFARE Classic 1K** (4-byte UID, SAK 08). The PN532
+reads them the same way the RC522 did, and the kiosk also writes the card info
+onto them (ID, time, rank, last in/out and the link) in sectors 1-15, using
+the factory key.
 
-### RC522 reader
+**Phones can't read the info or open the link from these cards**: most phones
+don't support MIFARE Classic. Signing in and out works exactly the same. Give
+people an NTAG215 card instead if they want the phone link.
 
-In `config.toml`:
+`tag read` on the admin command line prints the card type.
 
-```toml
-[hardware.nfc]
-reader = "mfrc522"
-```
+## After importing
 
-Wiring (SPI0, same as the legacy readme), and enable SPI with
-`sudo raspi-config nonint do_spi 0`:
-
-| RC522 | Pi pin |
-|---|---|
-| SDA | 24 (GPIO8, CE0) |
-| SCK | 23 (GPIO11) |
-| MOSI | 19 (GPIO10) |
-| MISO | 21 (GPIO9) |
-| IRQ | not connected |
-| GND | 6 |
-| RST | 22 (GPIO25) |
-| 3.3V | 1 |
-
-Limits compared with the PN532:
-
-- It **doesn't write** the stats and link onto cards. Signing in and out
-  works the same.
-- 7-byte cards are identified by their first bytes only (as in the legacy
-  system).
-
-**The keypad clashes with the RC522**: the Da Vinci Kit wiring uses GPIO10
-and GPIO25. Either leave the keypad out:
-
-```toml
-[hardware.keypad]
-enabled = false
-```
-
-or move it to free pins:
-
-```toml
-[hardware.keypad]
-rows = [5, 6, 12, 13]       # physical pins 29, 31, 32, 33
-cols = [16, 26, 20, 21]     # physical pins 36, 37, 38, 40
-```
-
-The kiosk refuses to start with a clear message if the pins overlap.
-
-### 16x2 LCD
-
-The I2C LCD (PCF8574 backpack at 0x27, like the legacy one) shows the scan
-result on line 1 and the detail or what's being typed on line 2. For the
-first minute after start-up it shows the Pi's IP address, like the old
-system, so people can find the web page.
-
-| LCD | Pi pin |
-|---|---|
-| GND | 6 (or 9) |
-| VCC | 2 (5V) |
-| SDA | 3 (GPIO2) |
-| SCL | 5 (GPIO3) |
-
-It shares the I2C bus with the PN532 (different addresses, 0x27 and 0x24).
-
-```toml
-[hardware.lcd]
-enabled = true      # alongside the touchscreen
-address = 0x27      # 0x3F on some backpacks; check with i2cdetect -y 1
-```
-
-### Headless mode (no touchscreen)
-
-Like the legacy system: reader + LCD (+ keypad if wired) + the web page.
-
-```toml
-[ui]
-mode = "headless"
-```
-
-or `python3 -m nfc_login --headless`. The LCD is turned on automatically in
-this mode. The "who's here" page and admin page at `http://<pi>:8080/`
-replace the old PHP site.
-
-### Packages
-
-`requirements-pi.txt` includes `mfrc522`, `spidev` and `smbus2`. The PHP,
-Apache and the C programs from the legacy system aren't needed. Once you've
-imported, you can stop them:
+The PHP site, Apache and the C programs from the legacy system aren't needed.
+Once you've imported, you can stop them:
 
 ```bash
 sudo crontab -e            # remove the two legacy lines (Scripts/main and cmdLogOutWithoutCredit)
 sudo systemctl disable --now apache2
 ```
 
-The old database stays where it is until you drop it.
+The old database stays where it is until you drop it. The "who's here" page
+and admin page at `http://<pi>:8080/` replace the old PHP site.

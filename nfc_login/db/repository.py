@@ -83,10 +83,10 @@ def get_tag(cur, uid: str) -> dict | None:
 
 
 def find_tag(cur, uid: str) -> dict | None:
-    """Look a scanned card up by UID, falling back to its legacy RC522 number.
+    """Look a scanned card up by UID, falling back to its legacy card number.
 
-    The fallback lets cards imported from the legacy system (and cards enrolled
-    on an RC522 reader, which only sees part of a 7-byte UID) match a scan.
+    The fallback lets cards imported from the legacy system match a scan (its
+    RC522 reader only saw part of a 7-byte UID).
     A card matched that way has its stored UID updated to the scanned one.
     """
     tag = get_tag(cur, uid)

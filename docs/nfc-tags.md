@@ -54,10 +54,17 @@ that card was tapped.
 | NTAG213 | 144 bytes | Link + one-line summary: `B12\|taylor\|12h34m\|#3\|in 10-01 16:30\|out 10-01 18:05` |
 | NTAG215 | 496 bytes | Everything (recommended) |
 | NTAG216 | 872 bytes | Everything |
-| MIFARE Classic 1K | – | Signs in by UID; nothing written |
+| MIFARE Classic 1K | 720 bytes | Everything, but phones can't read it (see below) |
 
 The kiosk reads the tag's capability container to find its size and writes
-the largest version that fits. A long `site_url` uses up NTAG213 space fast.
+the largest version that fits.
+
+**MIFARE Classic 1K** (4-byte UID, like the legacy system's cards): the same
+NDEF bytes go into the data blocks of sectors 1-15 (sector 0 and the sector
+trailers are never touched), using the factory key `FFFFFFFFFFFF`. The card
+isn't formatted the NFC Forum way, so phones won't show the link or the text.
+A card whose key was changed still signs in but shows "Card info not
+updated". A long `site_url` uses up NTAG213 space fast.
 
 ## Writing failures
 
