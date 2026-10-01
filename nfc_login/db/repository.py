@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from nfc_login.legacy.rfid import legacy_key_for_uid
 from nfc_login.services.ids import with_code
 
 # ---------------------------------------------------------------- users
@@ -81,12 +82,38 @@ def get_tag(cur, uid: str) -> dict | None:
     return cur.fetchone()
 
 
-def assign_tag(cur, uid: str, user_id: int, now: datetime) -> None:
+def find_tag(cur, uid: str) -> dict | None:
+    """Look a scanned card up by UID, falling back to its legacy RC522 number.
+
+    The fallback lets cards imported from the legacy system (and cards enrolled
+    on an RC522 reader, which only sees part of a 7-byte UID) match a scan.
+    A card matched that way has its stored UID updated to the scanned one.
+    """
+    tag = get_tag(cur, uid)
+    if tag:
+        return tag
+    key = legacy_key_for_uid(uid)
+    if key is None:
+        return None
+    cur.execute("SELECT * FROM tags WHERE legacy_key = %s AND is_active = 1 "
+                "ORDER BY enrolled_at DESC LIMIT 1", (key,))
+    tag = cur.fetchone()
+    if tag and tag["uid"] != uid:
+        cur.execute("UPDATE tags SET uid = %s WHERE uid = %s", (uid, tag["uid"]))
+        tag["uid"] = uid
+    return tag
+
+
+def assign_tag(cur, uid: str, user_id: int, now: datetime,
+               legacy_key: int | None = None) -> None:
+    if legacy_key is None:
+        legacy_key = legacy_key_for_uid(uid)
     cur.execute(
-        "INSERT INTO tags (uid, user_id, enrolled_at, is_active) VALUES (%s, %s, %s, 1) "
+        "INSERT INTO tags (uid, user_id, enrolled_at, is_active, legacy_key) "
+        "VALUES (%s, %s, %s, 1, %s) "
         "ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), "
-        "enrolled_at = VALUES(enrolled_at), is_active = 1",
-        (uid, user_id, now),
+        "enrolled_at = VALUES(enrolled_at), is_active = 1, legacy_key = VALUES(legacy_key)",
+        (uid, user_id, now, legacy_key),
     )
 
 

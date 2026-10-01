@@ -13,6 +13,8 @@
 | microSD card (16 GB+), 5 V 3 A USB-C supply | |
 | 3D printed shell | Holds everything |
 
+Coming from the old RC522 + 16x2 LCD setup? See [legacy.md](legacy.md).
+
 ## Pin map
 
 The keypad and NFC reader together use 12 GPIO header pins, none shared.

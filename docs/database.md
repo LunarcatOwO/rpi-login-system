@@ -10,6 +10,7 @@ is applied by `python -m nfc_login.admin init-db`. Every statement is
 users ──< tags            a user can have several cards (e.g. a replacement)
 users ──< sessions >── seasons
 users ──< adjustments >── seasons   admin corrections (+/- time)
+users ──< legacy_records   visit log copied from the legacy system (reference only)
 settings                  key/value (admin PIN hash)
 ```
 
@@ -22,6 +23,7 @@ settings                  key/value (admin PIN hash)
 | `pin_hash` | Optional keypad PIN, PBKDF2-SHA256 |
 | `is_active` | 0 hides the user and disables their cards |
 | `created_at` | |
+| `legacy_id` | Their `userId` in the legacy system, if imported |
 
 ### `tags`
 | Column | |
@@ -30,6 +32,7 @@ settings                  key/value (admin PIN hash)
 | `user_id` | Owner |
 | `enrolled_at` | |
 | `is_active` | 0 after `tag remove` |
+| `legacy_key` | The number the legacy RC522 system used for this card. A scan whose UID isn't found is matched on this ([legacy.md](legacy.md)). |
 
 ### `seasons`
 | Column | |
@@ -56,7 +59,7 @@ Hours an admin added or took away.
 | `user_id`, `season_id` | Adjustments belong to the season they were made in |
 | `seconds` | Positive adds time, negative subtracts |
 | `reason` | Free text |
-| `created_at`, `created_via` | `kiosk`, `web` or `cli` |
+| `created_at`, `created_via` | `kiosk`, `web`, `cli` or `import` |
 
 Adjustments are never edited or deleted; to undo one, add the opposite.
 

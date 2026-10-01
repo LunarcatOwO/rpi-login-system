@@ -14,6 +14,8 @@ import argparse
 import getpass
 import sys
 
+import pymysql
+
 from nfc_login.app import build_services
 from nfc_login.config import load_config
 from nfc_login.services import timefmt
@@ -244,6 +246,44 @@ def cmd_hours_history(s, args, config):
     _table(rows, ["When", "ID", "Username", "Change", "From", "Reason"])
 
 
+def cmd_import_legacy(s, args, config):
+    from nfc_login.legacy.importer import (LegacyImporter, read_legacy,
+                                           settings_from_legacy_config)
+    if args.legacy_config:
+        settings = settings_from_legacy_config(args.legacy_config)
+    else:
+        settings = {"host": args.host, "port": args.port, "user": args.user,
+                    "password": args.password, "database": args.database}
+        if settings["password"] is None:
+            settings["password"] = getpass.getpass(f"Password for {args.user}@{args.host}: ")
+    sections = [x.strip().upper() for x in args.sections.split(",")] if args.sections \
+        else [sec["letter"] for sec in config.sections]
+    unknown = set(sections) - set(s.users.section_names)
+    if unknown:
+        raise UserError(f"Unknown section(s): {', '.join(sorted(unknown))}")
+
+    data = read_legacy(settings)
+    print(f"Legacy database: {len(data['users'])} users, {len(data['pastseasons'])} "
+          f"past-season rows, {len(data['records'])} records.")
+    summary = LegacyImporter(s.db, sections).run(data, dry_run=args.dry_run)
+
+    print("DRY RUN, nothing saved:" if args.dry_run else "Imported:")
+    print(f"  users:        {summary.users} new, {summary.skipped_users} already imported")
+    print(f"  cards:        {summary.cards} ({summary.cards_need_scan} match on first scan)")
+    print(f"  hours:        {timefmt.format_duration(summary.hours_seconds)} into the "
+          "current season")
+    print(f"  signed in:    {summary.signed_in} (still signed in from the old system)")
+    print(f"  past seasons: {', '.join(summary.seasons) or 'none'} "
+          f"({summary.past_rows} totals)")
+    print(f"  visit log:    {summary.records} records copied")
+    if summary.created:
+        print()
+        _table([[legacy_id, code, name] for legacy_id, code, name in summary.created],
+               ["Old ID", "New ID", "Name"])
+    for warning in summary.warnings:
+        print(f"Warning: {warning}")
+
+
 def cmd_sessions_close_stale(s, args, config):
     print(f"Closed {s.attendance.close_stale_sessions()} stale session(s).")
 
@@ -330,6 +370,19 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--limit", type=int, default=50)
     c.set_defaults(func=cmd_hours_history)
 
+    c = sub.add_parser("import-legacy",
+                       help="import users, cards and hours from the legacy attendance system")
+    c.add_argument("--legacy-config", help="the legacy system's config.json (has its DB login)")
+    c.add_argument("--host", default="localhost")
+    c.add_argument("--port", type=int, default=3306)
+    c.add_argument("--user", default="php", help="legacy DB user (default: php, read-only)")
+    c.add_argument("--password", help="asked for if not given")
+    c.add_argument("--database", default="attendance")
+    c.add_argument("--sections", help="sections to put people in, in order, e.g. A or A,B "
+                                      "(default: all, filling A first)")
+    c.add_argument("--dry-run", action="store_true", help="show what would happen, save nothing")
+    c.set_defaults(func=cmd_import_legacy)
+
     sessions = sub.add_parser("sessions", help="who is signed in").add_subparsers(
         dest="action", required=True)
     sessions.add_parser("open", help="list people signed in now").set_defaults(
@@ -347,7 +400,7 @@ def main(argv: list[str] | None = None) -> int:
     services = build_services(config)
     try:
         args.func(services, args, config)
-    except (UserError, SeasonError, AttendanceError, ValueError) as exc:
+    except (UserError, SeasonError, AttendanceError, ValueError, pymysql.err.Error) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:

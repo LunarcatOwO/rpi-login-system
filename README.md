@@ -31,6 +31,10 @@ stats back onto their card along with a link a phone can open.
   you forget your card, plus the admin menu.
 - **Season resets** archive the old season, start everyone at 0h 00m for the
   new year, and keep all users, cards and history.
+- **Legacy system support:** imports users, cards, hours and past seasons
+  from [aesom-e/attendance](https://github.com/aesom-e/attendance), keeps old
+  cards working, and runs on its RC522 reader and 16x2 LCD (with or without
+  the touchscreen). See [docs/legacy.md](docs/legacy.md).
 - **Simulator mode** runs the whole kiosk on a normal computer, no hardware.
 
 ## Hardware
@@ -81,6 +85,7 @@ python3 -m nfc_login --simulate --windowed
 | [docs/usage.md](docs/usage.md) | Scanning, keypad, sections and IDs, live page, web admin, CLI reference |
 | [docs/nfc-tags.md](docs/nfc-tags.md) | What's written on each card and why it's never trusted |
 | [docs/seasons.md](docs/seasons.md) | How season resets and archives work |
+| [docs/legacy.md](docs/legacy.md) | Importing from the old attendance system, RC522 reader, 16x2 LCD, headless mode |
 | [docs/database.md](docs/database.md) | MariaDB tables and how hours are calculated |
 | [docs/architecture.md](docs/architecture.md) | How the code is organised |
 
@@ -90,7 +95,8 @@ python3 -m nfc_login --simulate --windowed
 nfc_login/
   config.py      settings from config.toml
   db/            MariaDB schema, connection, SQL queries
-  hardware/      PN532 reader, keypad, simulator
+  hardware/      PN532 + RC522 readers, keypad, 16x2 LCD, simulator
+  legacy/        old card numbers + importer for the legacy attendance system
   tags/          NDEF encoding and the card payload
   services/      attendance, leaderboard, seasons, users, PINs
   kiosk/         scan + keypad behaviour, NFC polling thread

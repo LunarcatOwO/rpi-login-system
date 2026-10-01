@@ -3,3 +3,7 @@
 adafruit-blinka>=8.0
 adafruit-circuitpython-pn532>=2.4
 RPi.GPIO>=0.7.1
+# Legacy hardware (RC522 reader, 16x2 I2C LCD); see docs/legacy.md
+mfrc522>=0.0.7
+spidev>=3.5
+smbus2>=0.4
