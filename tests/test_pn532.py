@@ -14,10 +14,12 @@ from nfc_login.tags import ndef
 
 
 class FakePN532:
-    def __init__(self, uid: bytes, cc: bytes | None = None, key: bytes = CLASSIC_KEY):
+    def __init__(self, uid: bytes, cc: bytes | None = None, key: bytes = CLASSIC_KEY,
+                 changed_sectors: tuple[int, ...] = ()):
         self.uid = uid
         self.cc = cc
         self.key = key
+        self.changed_sectors = changed_sectors
         self.pages: dict[int, bytes] = {}
         self.blocks: dict[int, bytes] = {}
         self.authed_sector = None
@@ -37,7 +39,7 @@ class FakePN532:
 
     def mifare_classic_authenticate_block(self, uid, block, key_number, key):
         assert bytes(uid) == self.uid and key_number == 0x60
-        ok = bytes(key) == self.key
+        ok = bytes(key) == self.key and block // 4 not in self.changed_sectors
         self.authed_sector = block // 4 if ok else None
         return ok
 
@@ -73,6 +75,15 @@ def test_classic_card_with_changed_key_is_refused():
     reader.read_uid()
     with pytest.raises(TagWriteError, match="default key"):
         reader.write_ndef(b"\xd1" + b"x" * 10)
+    assert fake.blocks == {}
+
+
+def test_classic_key_changed_part_way_writes_nothing():
+    fake = FakePN532(bytes.fromhex("22DD51C1"), changed_sectors=(2,))
+    reader = PN532Reader(pn532=fake)
+    reader.read_uid()
+    with pytest.raises(TagWriteError, match="sector 2"):
+        reader.write_ndef(b"\xd1" + b"x" * 60)      # spans sectors 1 and 2
     assert fake.blocks == {}
 
 
