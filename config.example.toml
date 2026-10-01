@@ -1,0 +1,43 @@
+# Copy to config.toml and edit. Anything left out uses the default shown here.
+
+[database]
+host = "localhost"
+port = 3306
+user = "nfc_login"
+password = "change-me"          # or set NFC_LOGIN_DB_PASSWORD instead
+name = "nfc_login"
+
+[hardware]
+mode = "pi"                     # "pi" for the real reader + keypad, "simulated" for a PC
+
+[hardware.nfc]
+write_tags = true               # write ID / time / rank / link onto the card after each scan
+poll_timeout_seconds = 0.5
+
+[hardware.keypad]
+# BCM pin numbers from the Da Vinci Kit "2.1.5 Keypad" lesson.
+rows = [18, 23, 24, 25]
+cols = [10, 22, 27, 17]
+keys = ["1", "2", "3", "A",
+        "4", "5", "6", "B",
+        "7", "8", "9", "C",
+        "*", "0", "#", "D"]
+
+[tag]
+# Placeholder for the GitHub Pages site a phone opens when it taps the card.
+site_url = "https://lunarcatowo.github.io/rpi-login-system/"
+
+[attendance]
+min_scan_interval_seconds = 10  # ignore the same card again within this window
+max_session_hours = 12          # longer sessions are treated as a forgotten sign-out (0 credit)
+
+[ui]
+fullscreen = true
+width = 800
+height = 480
+leaderboard_size = 10
+result_seconds = 6              # how long a scan result stays on screen
+keypad_timeout_seconds = 30
+
+[seasons]
+archive_dir = "archive"         # CSV snapshots written on every season reset
