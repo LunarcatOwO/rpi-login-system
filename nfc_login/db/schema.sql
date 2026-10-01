@@ -66,6 +66,27 @@ CREATE TABLE IF NOT EXISTS adjustments (
     INDEX idx_adjustments_user_season (user_id, season_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Visit log copied from the legacy system (aesom-e/attendance `records` table).
+-- Kept for reference only: imported hours are added as adjustments instead.
+CREATE TABLE IF NOT EXISTS legacy_records (
+    id                BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id           INT          NOT NULL,
+    legacy_record_id  INT UNSIGNED NOT NULL UNIQUE,
+    start_time        DATETIME     NULL,
+    end_time          DATETIME     NULL,
+    notes             VARCHAR(64)  NULL,
+    CONSTRAINT fk_legacy_records_user FOREIGN KEY (user_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Columns added after the first release. ADD COLUMN IF NOT EXISTS keeps this
+-- file safe to re-run on an existing database.
+-- users.legacy_id: the userId in the legacy system, so an import can be re-run.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS legacy_id INT UNSIGNED NULL UNIQUE;
+-- tags.legacy_key: the number the legacy MFRC522 script stored for this card
+-- (4 UID bytes + check byte). Lets old cards and RC522 readers match by number.
+ALTER TABLE tags ADD COLUMN IF NOT EXISTS legacy_key BIGINT UNSIGNED NULL;
+CREATE INDEX IF NOT EXISTS idx_tags_legacy_key ON tags (legacy_key);
+
 -- Small key/value store (admin PIN hash, etc.).
 CREATE TABLE IF NOT EXISTS settings (
     name   VARCHAR(64)  PRIMARY KEY,

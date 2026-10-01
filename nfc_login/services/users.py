@@ -109,7 +109,7 @@ class UserService:
             user = repo.get_user(cur, user_id)
             if not user or not user["is_active"]:
                 raise UserError("No active user with that ID.")
-            existing = repo.get_tag(cur, uid)
+            existing = repo.find_tag(cur, uid)
             if existing and existing["is_active"] and existing["user_id"] != user_id:
                 owner = repo.get_user(cur, existing["user_id"])
                 raise UserError(
