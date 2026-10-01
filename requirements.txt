@@ -1,0 +1,2 @@
+# Needed everywhere (including simulated mode on a PC)
+PyMySQL>=1.1

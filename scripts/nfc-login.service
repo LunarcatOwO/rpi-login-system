@@ -1,0 +1,19 @@
+# systemd unit that starts the kiosk on boot, on the desktop session.
+# Installed by scripts/install.sh; edit User/paths if you install elsewhere.
+[Unit]
+Description=NFC login kiosk
+After=graphical.target mariadb.service
+Wants=mariadb.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/rpi-login-system
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/pi/.Xauthority
+ExecStart=/home/pi/rpi-login-system/.venv/bin/python -m nfc_login --config /home/pi/rpi-login-system/config.toml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=graphical.target
