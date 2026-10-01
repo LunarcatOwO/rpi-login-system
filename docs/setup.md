@@ -33,9 +33,13 @@ Then:
 
 ```bash
 .venv/bin/python -m nfc_login.admin set-admin-pin
-.venv/bin/python -m nfc_login.admin user add "First Person"
+.venv/bin/python -m nfc_login.admin user add "First Person" --section A
 sudo reboot
 ```
+
+After the reboot the kiosk is on screen and the live page is at
+`http://<pi-address>:8080/` (port set in `[web]`; `enabled = false` turns it
+off). Give the Pi a fixed address on your router so the link doesn't change.
 
 ## 3. Manual install (what the script does)
 
@@ -135,4 +139,5 @@ sudo systemctl restart nfc-login
 | Keys repeat or ghost | Add the 10 kΩ pull-downs on the column lines |
 | `Access denied for user` | Password in `config.toml` matches the MariaDB user? |
 | `No active season` | `python -m nfc_login.admin season new` |
+| Live page doesn't load | Same network as the Pi? `journalctl -u nfc-login` shows "live page on http://..."; another program using port 8080? |
 | Times are wrong | `timedatectl`; the Pi needs network time |

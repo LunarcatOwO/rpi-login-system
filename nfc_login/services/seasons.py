@@ -102,6 +102,7 @@ class SeasonService:
                 raise SeasonError(f"No season named {name!r}.")
             entries = lb.leaderboard(cur, season["id"])
             sessions = repo.season_sessions(cur, season["id"])
+            adjustments = repo.list_adjustments(cur, season["id"], limit=1_000_000)
 
         self.archive_dir.mkdir(parents=True, exist_ok=True)
         safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in name)
@@ -110,18 +111,25 @@ class SeasonService:
 
         with board_path.open("w", newline="") as fh:
             writer = csv.writer(fh)
-            writer.writerow(["rank", "user_id", "username", "total_seconds", "hours", "minutes"])
+            writer.writerow(["rank", "user_id", "username", "section", "total_seconds",
+                             "hours", "minutes"])
             for e in entries:
                 hours, minutes = timefmt.split_hours_minutes(e.total_seconds)
-                writer.writerow([e.rank, e.user_id, e.username, e.total_seconds, hours, minutes])
+                writer.writerow([e.rank, e.code, e.username, e.section, e.total_seconds,
+                                 hours, minutes])
 
         with sessions_path.open("w", newline="") as fh:
             writer = csv.writer(fh)
-            columns = ["id", "user_id", "username", "sign_in_at", "sign_in_method",
+            columns = ["id", "code", "username", "sign_in_at", "sign_in_method",
                        "sign_out_at", "sign_out_method", "credited_seconds"]
-            writer.writerow(columns)
+            writer.writerow([c if c != "code" else "user_id" for c in columns])
             for s in sessions:
                 writer.writerow([s[c] for c in columns])
+            # Admin corrections are listed after the sessions.
+            for a in adjustments:
+                writer.writerow([f"adj-{a['id']}", a["code"], a["username"], a["created_at"],
+                                 f"adjustment ({a['created_via']})", "", a["reason"],
+                                 a["seconds"]])
 
         return [board_path, sessions_path]
 

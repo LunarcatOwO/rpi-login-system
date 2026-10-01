@@ -25,16 +25,16 @@ class TagTooSmall(Exception):
     pass
 
 
-def site_link(site_url: str, user_id: int) -> str:
+def site_link(site_url: str, code: str) -> str:
     separator = "&" if "?" in site_url else "?"
-    return f"{site_url}{separator}{urlencode({'id': user_id})}"
+    return f"{site_url}{separator}{urlencode({'id': code})}"
 
 
 def full_text(stats: UserStats) -> str:
     hours, minutes = stats.hours_minutes
     rank = f"#{stats.rank} of {stats.ranked_users}" if stats.rank else "-"
     return "\n".join([
-        f"ID: {stats.user_id}",
+        f"ID: {stats.code}",
         f"User: {stats.username}",
         f"Season: {stats.season_name}",
         f"Time: {hours}h {minutes}m",
@@ -49,7 +49,7 @@ def compact_text(stats: UserStats) -> str:
     last_in = stats.last_sign_in.strftime("%m-%d %H:%M") if stats.last_sign_in else "-"
     last_out = stats.last_sign_out.strftime("%m-%d %H:%M") if stats.last_sign_out else "-"
     return (
-        f"{stats.user_id}|{stats.username}|{hours}h{minutes}m|#{stats.rank or '-'}"
+        f"{stats.code}|{stats.username}|{hours}h{minutes}m|#{stats.rank or '-'}"
         f"|in {last_in}|out {last_out}"
     )
 
@@ -60,7 +60,7 @@ def build_message(stats: UserStats, site_url: str, capacity: int | None = None) 
     ``capacity`` is the tag's NDEF data area (from its capability container);
     the TLV wrapper overhead is accounted for here.
     """
-    link = ndef.uri_record(site_link(site_url, stats.user_id))
+    link = ndef.uri_record(site_link(site_url, stats.code))
     variants = [
         [link, ndef.text_record(full_text(stats))],
         [link, ndef.text_record(compact_text(stats))],

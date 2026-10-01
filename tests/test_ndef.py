@@ -8,7 +8,7 @@ from nfc_login.tags.payload import TagTooSmall, build_message, site_link
 
 
 def stats(**overrides):
-    values = dict(user_id=12, username="taylor", season_name="2026", total_seconds=45_296,
+    values = dict(user_id=12, code="B12", section="B", username="taylor", season_name="2026", total_seconds=45_296,
                   rank=3, ranked_users=25, last_sign_in=datetime(2026, 10, 1, 16, 30),
                   last_sign_out=datetime(2026, 10, 1, 18, 5), signed_in=False)
     values.update(overrides)
@@ -47,9 +47,9 @@ def test_long_tlv_length_uses_three_byte_form():
 
 def test_full_payload_contents():
     records = ndef.decode_message(build_message(stats(), "https://x.github.io/site/"))
-    assert ndef.record_text(records[0]) == "https://x.github.io/site/?id=12"
+    assert ndef.record_text(records[0]) == "https://x.github.io/site/?id=B12"
     text = ndef.record_text(records[1])
-    for expected in ["ID: 12", "User: taylor", "Time: 12h 34m", "Rank: #3 of 25",
+    for expected in ["ID: B12", "User: taylor", "Time: 12h 34m", "Rank: #3 of 25",
                      "Last in: 2026-10-01 16:30", "Last out: 2026-10-01 18:05"]:
         assert expected in text
 
@@ -59,7 +59,7 @@ def test_payload_shrinks_to_fit_ntag213():
     message = build_message(stats(), "https://lunarcatowo.github.io/rpi-login-system/", capacity)
     assert len(ndef.wrap_tlv(message)) <= capacity
     texts = [ndef.record_text(r) for r in ndef.decode_message(message)]
-    assert any("12|taylor|12h34m|#3" in t for t in texts)
+    assert any("B12|taylor|12h34m|#3" in t for t in texts)
 
 
 def test_payload_too_small_raises():
@@ -68,4 +68,4 @@ def test_payload_too_small_raises():
 
 
 def test_site_link_appends_query():
-    assert site_link("https://a.b/?x=1", 5) == "https://a.b/?x=1&id=5"
+    assert site_link("https://a.b/?x=1", "A05") == "https://a.b/?x=1&id=A05"

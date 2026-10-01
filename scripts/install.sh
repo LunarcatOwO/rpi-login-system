@@ -60,5 +60,5 @@ CRON_LINE="0 3 * * * cd $REPO_DIR && $REPO_DIR/.venv/bin/python -m nfc_login.adm
 echo
 echo "Done. Next steps:"
 echo "  1. Set the admin PIN:   .venv/bin/python -m nfc_login.admin set-admin-pin"
-echo "  2. Add users:           .venv/bin/python -m nfc_login.admin user add \"Name\""
+echo "  2. Add users:           .venv/bin/python -m nfc_login.admin user add \"Name\" --section A"
 echo "  3. Reboot (I2C needs it the first time), then the kiosk starts on its own."

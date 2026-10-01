@@ -8,15 +8,31 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from nfc_login.services.ids import with_code
+
 # ---------------------------------------------------------------- users
 
 
-def create_user(cur, username: str, now: datetime, pin_hash: str | None = None) -> int:
+def create_user(cur, username: str, section: str, number: int, now: datetime,
+                pin_hash: str | None = None) -> int:
     cur.execute(
-        "INSERT INTO users (username, pin_hash, created_at) VALUES (%s, %s, %s)",
-        (username, pin_hash, now),
+        "INSERT INTO users (section, number, username, pin_hash, created_at) "
+        "VALUES (%s, %s, %s, %s, %s)",
+        (section, number, username, pin_hash, now),
     )
     return cur.lastrowid
+
+
+def next_user_number(cur, section: str) -> int:
+    """Lowest unused number in a section (fills gaps left by removed IDs)."""
+    cur.execute("SELECT number FROM users WHERE section = %s ORDER BY number FOR UPDATE",
+                (section,))
+    expected = 1
+    for row in cur.fetchall():
+        if row["number"] != expected:
+            break
+        expected += 1
+    return expected
 
 
 def get_user(cur, user_id: int, for_update: bool = False) -> dict | None:
@@ -24,20 +40,25 @@ def get_user(cur, user_id: int, for_update: bool = False) -> dict | None:
     if for_update:
         sql += " FOR UPDATE"
     cur.execute(sql, (user_id,))
-    return cur.fetchone()
+    return with_code(cur.fetchone())
+
+
+def get_user_by_code(cur, section: str, number: int) -> dict | None:
+    cur.execute("SELECT * FROM users WHERE section = %s AND number = %s", (section, number))
+    return with_code(cur.fetchone())
 
 
 def get_user_by_name(cur, username: str) -> dict | None:
     cur.execute("SELECT * FROM users WHERE username = %s", (username,))
-    return cur.fetchone()
+    return with_code(cur.fetchone())
 
 
 def list_users(cur, include_inactive: bool = False) -> list[dict]:
     sql = "SELECT * FROM users"
     if not include_inactive:
         sql += " WHERE is_active = 1"
-    cur.execute(sql + " ORDER BY id")
-    return list(cur.fetchall())
+    cur.execute(sql + " ORDER BY section, number")
+    return [with_code(r) for r in cur.fetchall()]
 
 
 def set_user_pin(cur, user_id: int, pin_hash: str | None) -> None:
@@ -76,10 +97,10 @@ def deactivate_tag(cur, uid: str) -> int:
 
 def list_tags(cur) -> list[dict]:
     cur.execute(
-        "SELECT t.*, u.username FROM tags t JOIN users u ON u.id = t.user_id "
-        "ORDER BY t.user_id, t.enrolled_at"
+        "SELECT t.*, u.username, u.section, u.number FROM tags t "
+        "JOIN users u ON u.id = t.user_id ORDER BY u.section, u.number, t.enrolled_at"
     )
-    return list(cur.fetchall())
+    return [with_code(r) for r in cur.fetchall()]
 
 
 # ---------------------------------------------------------------- seasons
@@ -132,10 +153,11 @@ def get_open_session(cur, user_id: int) -> dict | None:
 
 def list_open_sessions(cur) -> list[dict]:
     cur.execute(
-        "SELECT s.*, u.username FROM sessions s JOIN users u ON u.id = s.user_id "
-        "WHERE s.sign_out_at IS NULL ORDER BY s.sign_in_at"
+        "SELECT s.*, u.username, u.section, u.number FROM sessions s "
+        "JOIN users u ON u.id = s.user_id "
+        "WHERE s.sign_out_at IS NULL ORDER BY u.section, s.sign_in_at"
     )
-    return list(cur.fetchall())
+    return [with_code(r) for r in cur.fetchall()]
 
 
 def get_last_session(cur, user_id: int) -> dict | None:
@@ -173,30 +195,65 @@ def close_session(cur, session_id: int, now: datetime, method: str, credited_sec
 
 
 def season_totals(cur, season_id: int) -> list[dict]:
-    """Total credited seconds per active user for a season (0 if none)."""
+    """Season time per active user: session time plus admin adjustments."""
     cur.execute(
-        "SELECT u.id AS user_id, u.username, "
-        "       COALESCE(SUM(s.credited_seconds), 0) AS total_seconds, "
-        "       COUNT(s.id) AS session_count "
-        "FROM users u "
-        "LEFT JOIN sessions s ON s.user_id = u.id AND s.season_id = %s "
-        "WHERE u.is_active = 1 "
-        "GROUP BY u.id, u.username",
-        (season_id,),
+        "SELECT u.id AS user_id, u.username, u.section, u.number, "
+        "  COALESCE((SELECT SUM(s.credited_seconds) FROM sessions s "
+        "            WHERE s.user_id = u.id AND s.season_id = %s), 0) AS session_seconds, "
+        "  COALESCE((SELECT SUM(a.seconds) FROM adjustments a "
+        "            WHERE a.user_id = u.id AND a.season_id = %s), 0) AS adjustment_seconds "
+        "FROM users u WHERE u.is_active = 1",
+        (season_id, season_id),
     )
-    rows = list(cur.fetchall())
+    rows = [with_code(r) for r in cur.fetchall()]
     for row in rows:
-        row["total_seconds"] = int(row["total_seconds"])
+        row["session_seconds"] = int(row["session_seconds"])
+        row["adjustment_seconds"] = int(row["adjustment_seconds"])
+        row["total_seconds"] = max(0, row["session_seconds"] + row["adjustment_seconds"])
     return rows
+
+
+def user_season_total(cur, user_id: int, season_id: int) -> int:
+    cur.execute(
+        "SELECT COALESCE((SELECT SUM(credited_seconds) FROM sessions "
+        "                 WHERE user_id = %s AND season_id = %s), 0) "
+        "     + COALESCE((SELECT SUM(seconds) FROM adjustments "
+        "                 WHERE user_id = %s AND season_id = %s), 0) AS total",
+        (user_id, season_id, user_id, season_id),
+    )
+    return int(cur.fetchone()["total"])
 
 
 def season_sessions(cur, season_id: int) -> list[dict]:
     cur.execute(
-        "SELECT s.*, u.username FROM sessions s JOIN users u ON u.id = s.user_id "
-        "WHERE s.season_id = %s ORDER BY s.sign_in_at",
+        "SELECT s.*, u.username, u.section, u.number FROM sessions s "
+        "JOIN users u ON u.id = s.user_id WHERE s.season_id = %s ORDER BY s.sign_in_at",
         (season_id,),
     )
-    return list(cur.fetchall())
+    return [with_code(r) for r in cur.fetchall()]
+
+
+# ---------------------------------------------------------------- adjustments
+
+
+def add_adjustment(cur, user_id: int, season_id: int, seconds: int, reason: str,
+                   now: datetime, via: str) -> int:
+    cur.execute(
+        "INSERT INTO adjustments (user_id, season_id, seconds, reason, created_at, created_via) "
+        "VALUES (%s, %s, %s, %s, %s, %s)",
+        (user_id, season_id, seconds, reason, now, via),
+    )
+    return cur.lastrowid
+
+
+def list_adjustments(cur, season_id: int, limit: int = 50) -> list[dict]:
+    cur.execute(
+        "SELECT a.*, u.username, u.section, u.number FROM adjustments a "
+        "JOIN users u ON u.id = a.user_id WHERE a.season_id = %s "
+        "ORDER BY a.created_at DESC, a.id DESC LIMIT %s",
+        (season_id, limit),
+    )
+    return [with_code(r) for r in cur.fetchall()]
 
 
 # ---------------------------------------------------------------- settings

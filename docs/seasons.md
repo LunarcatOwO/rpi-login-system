@@ -25,7 +25,8 @@ After that it writes two CSV snapshots of the old season to the archive
 folder (`[seasons] archive_dir`, default `archive/`):
 
 - `<season>-leaderboard.csv`: rank, user ID, username, total seconds, hours, minutes
-- `<season>-sessions.csv`: every sign-in and sign-out
+- `<season>-sessions.csv`: every sign-in and sign-out, then every admin
+  adjustment
 
 ## What is kept
 
@@ -33,7 +34,7 @@ folder (`[seasons] archive_dir`, default `archive/`):
 |---|---|
 | Users, IDs, usernames, PINs | Kept |
 | Cards | Kept, keep working |
-| Old season's sessions | Kept in the database, linked to the old season |
+| Old season's sessions and hour adjustments | Kept in the database, linked to the old season |
 | Hours shown on the kiosk | Start at 0h 00m for everyone |
 | Last sign-in / sign-out | Kept (they're facts about the person, not the season) |
 
