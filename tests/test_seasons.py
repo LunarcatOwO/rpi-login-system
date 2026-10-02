@@ -35,7 +35,7 @@ def test_season_reset_keeps_users_and_history(services, clock):
     board_csv = next(p for p in summary.archive_files if p.name.endswith("leaderboard.csv"))
     rows = list(csv.DictReader(board_csv.open()))
     assert rows[0]["username"] == "taylor" and rows[0]["hours"] == "3" and rows[0]["minutes"] == "30"
-    assert rows[0]["user_id"] == "A01"
+    assert rows[0]["user_id"] == "A001"
 
 
 def test_adjustments_stay_with_their_season(services):

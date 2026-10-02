@@ -81,7 +81,7 @@ function render() {
     const people = data.here.filter(p => p.section === s.letter);
     const box = el("div", "section");
     const h = el("h3");
-    h.append(el("span", "", s.letter + " · " + s.name), el("span", "muted", people.length));
+    h.append(el("span", "", s.name), el("span", "muted", people.length));
     box.append(h);
     if (!people.length) box.append(el("div", "muted", "Nobody"));
     for (const p of people) {
@@ -99,7 +99,7 @@ function render() {
   for (const r of data.leaderboard.slice(0, 20)) {
     const tr = el("tr");
     tr.append(el("td", "", r.rank), el("td", "", r.code), el("td", "", r.name),
-              el("td", "r", r.total));
+              el("td", "muted", r.team), el("td", "r", r.total));
     board.append(tr);
   }
   if (!data.leaderboard.length) board.append(el("tr")).append(el("td", "muted", "No one yet"));

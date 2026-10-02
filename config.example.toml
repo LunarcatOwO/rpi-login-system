@@ -11,6 +11,11 @@ name = "nfc_login"
 mode = "pi"                     # "pi" for the real reader + keypad, "simulated" for a PC
 
 [hardware.nfc]
+interface = "spi"               # how the PN532 is wired: "spi" (fastest), "i2c" or "uart"
+spi_cs_pin = 5                  # BCM pin for the PN532's SS line (physical pin 29)
+spi_baudrate = 1000000          # Hz; the PN532 allows up to 5 MHz, lower it for long wires
+uart_port = "/dev/serial0"
+tries = 4                       # attempts per block when a read or write fails part-way
 write_tags = true               # write ID / time / rank / link onto the card after each scan
 poll_timeout_seconds = 0.5
 
@@ -28,9 +33,10 @@ key_clicks = true               # short click on each keypad press
 
 [hardware.keypad]
 enabled = true
-# BCM pin numbers from the Da Vinci Kit "2.1.5 Keypad" lesson.
+# BCM pin numbers from the Da Vinci Kit "2.1.5 Keypad" lesson, except that
+# the lesson's GPIO 10 is SPI MOSI (the PN532 needs it), so that wire moves to GPIO 6.
 rows = [18, 23, 24, 25]
-cols = [10, 22, 27, 17]
+cols = [6, 22, 27, 17]
 keys = ["1", "2", "3", "A",
         "4", "5", "6", "B",
         "7", "8", "9", "C",
@@ -62,24 +68,35 @@ host = "0.0.0.0"
 port = 8080
 refresh_seconds = 3
 
-# Sections of people. A user's ID is their section letter plus a number (A07).
-# "key" is the keypad key that starts typing an ID in that section.
+# Teams. A user's ID is their team letter plus a number (A007), and "key" is
+# the keypad key that starts typing it. "short" is the name on the kiosk's
+# side panel (8 letters at most). Letter M is the mentors: leave out "key",
+# their IDs are just a number (007). Up to 999 people per team.
 [[sections]]
 letter = "A"
-name = "Section A"
+name = "Robot"
+short = "Robot"
 key = "A"
 
 [[sections]]
 letter = "B"
-name = "Section B"
+name = "Impact"
+short = "Impact"
 key = "B"
 
 [[sections]]
 letter = "C"
-name = "Section C"
+name = "Sustainability"
+short = "Sustain"
 key = "C"
 
 [[sections]]
 letter = "D"
-name = "Section D"
+name = "Strategy"
+short = "Strategy"
 key = "D"
+
+[[sections]]
+letter = "M"
+name = "Mentors"
+short = "Mentor"

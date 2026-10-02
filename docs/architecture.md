@@ -10,7 +10,7 @@ nfc_login/
 │   ├── connection.py   Database: connections, transactions, schema apply
 │   └── repository.py   every SQL query, as small functions
 ├── hardware/
-│   ├── nfc_reader.py   PN532 over I2C: read UID, write NDEF to NTAG / MIFARE Classic
+│   ├── nfc_reader.py   PN532 over SPI (or I2C/UART): read UID, read/write NDEF with retries
 │   ├── keypad.py       Da Vinci Kit 4x4 keypad scanner + polling thread
 │   └── simulated.py    fake reader for running on a PC
 ├── legacy/
@@ -23,8 +23,8 @@ nfc_login/
 │   ├── attendance.py   sign in/out toggle, stats, sign-out-all, stale clean-up
 │   ├── leaderboard.py  ranking
 │   ├── seasons.py      season reset + CSV archive
-│   ├── users.py        users, section IDs, cards, admin PIN
-│   ├── ids.py          A07-style user IDs
+│   ├── users.py        users, teams and IDs, cards, admin PIN
+│   ├── ids.py          A007 / 007-style user IDs (teams and mentors)
 │   ├── pins.py         PIN hashing
 │   └── timefmt.py      "12h 34m" and timestamp formatting
 ├── kiosk/

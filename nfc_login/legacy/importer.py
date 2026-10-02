@@ -9,7 +9,7 @@ Legacy schema (github.com/aesom-e/attendance, database `attendance`):
 
 How it maps:
 
-    users.name, userId    -> a user with a U ID (U07) who picks their group on
+    users.name, userId    -> a user with a U ID (U007) whose team an admin picks on
                              their first card scan, or straight into the
                              sections given with --sections;
                              the legacy userId is kept in users.legacy_id
@@ -227,7 +227,7 @@ class LegacyImporter:
     # ------------------------------------------------------------ helpers
 
     def _next_code(self, cur) -> tuple[str, int]:
-        """Next free ID, filling the chosen sections in order (A01..A99, then B01...)."""
+        """Next free ID, filling the chosen sections in order (A001..A999, then B001...)."""
         if not self.sections:
             return ids.UNSORTED, repo.next_user_number(cur, ids.UNSORTED)
         for section in self.sections:

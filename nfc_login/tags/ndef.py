@@ -124,6 +124,32 @@ def unwrap_tlv(data: bytes) -> bytes:
     raise ValueError("no NDEF message found")
 
 
+def tlv_end(data: bytes) -> int | None:
+    """How many bytes from the start of tag memory hold the NDEF message TLV,
+    so a reader can stop there. None if ``data`` is too short to tell yet."""
+    i = 0
+    while i < len(data):
+        tag = data[i]
+        if tag == 0x00:
+            i += 1
+            continue
+        if tag == TLV_TERMINATOR:
+            return i + 1
+        if i + 1 >= len(data):
+            return None
+        length = data[i + 1]
+        header = 2
+        if length == 0xFF:
+            if i + 3 >= len(data):
+                return None
+            length = int.from_bytes(data[i + 2:i + 4], "big")
+            header = 4
+        if tag == TLV_NDEF:
+            return i + header + length
+        i += header + length
+    return None
+
+
 def record_text(record: Record) -> str:
     """Human-readable value of a URI or Text record."""
     if record.type == b"U":

@@ -43,9 +43,12 @@ def test_config_defaults_and_override(tmp_path):
 
 
 def test_user_codes():
-    assert format_code("A", 7) == "A07"
+    assert format_code("A", 7) == "A007"
+    assert format_code("M", 7) == "007"
     assert parse_code(" b12 ") == ("B", 12)
-    for bad in ["7", "AA", "A", "A100", "A00"]:
+    assert parse_code("A999") == ("A", 999)
+    assert parse_code("012") == ("M", 12)
+    for bad in ["AA", "A", "A1000", "A000", "000", "0012", ""]:
         with pytest.raises(ValueError):
             parse_code(bad)
 
@@ -60,7 +63,10 @@ def test_keypad_amounts():
 
 def test_four_sections_one_per_letter_key():
     config = load_config("/nonexistent.toml")
-    assert [(s["letter"], s["key"]) for s in config.sections] == [(c, c) for c in "ABCD"]
+    assert [(s["letter"], s["key"]) for s in config.sections] == [
+        ("A", "A"), ("B", "B"), ("C", "C"), ("D", "D"), ("M", "")]
+    assert [s["name"] for s in config.sections] == [
+        "Robot", "Impact", "Sustainability", "Strategy", "Mentors"]
 
 
 def test_sections_must_not_share_keys(tmp_path):

@@ -92,9 +92,9 @@ def test_sign_out_everyone_and_close_stale(services, clock):
 
 def test_ids_are_per_section_and_fill_gaps(services):
     _attendance, _seasons, users = services
-    assert users.add("a1", "A")["code"] == "A01"
-    assert users.add("a2", "a")["code"] == "A02"
-    assert users.add("d1", "D")["code"] == "D01"
+    assert users.add("a1", "A")["code"] == "A001"
+    assert users.add("a2", "a")["code"] == "A002"
+    assert users.add("d1", "D")["code"] == "D001"
     assert users.get_by_code("d1")["username"] == "d1"
     from nfc_login.services.users import UserError
     with pytest.raises(UserError):
@@ -117,4 +117,4 @@ def test_admin_adjustments_count_toward_total_and_rank(services, clock):
         attendance.adjust(b, 0)
     history = attendance.recent_adjustments()
     assert [h["seconds"] for h in history] == [-1800, 7200]
-    assert history[1]["reason"] == "missed scans" and history[1]["code"] == "B01"
+    assert history[1]["reason"] == "missed scans" and history[1]["code"] == "B001"

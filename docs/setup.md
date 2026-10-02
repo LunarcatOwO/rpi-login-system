@@ -20,8 +20,8 @@ bash scripts/install.sh
 
 The script:
 
-1. installs `python3-venv`, `python3-tk`, `mariadb-server` and `i2c-tools`,
-2. enables I2C,
+1. installs `python3-venv`, `python3-tk` and `mariadb-server`,
+2. enables SPI,
 3. makes a virtual environment in `.venv` with `requirements-pi.txt`,
 4. creates a `nfc_login` MariaDB database and user with a random password,
    and writes it into `config.toml`,
@@ -44,8 +44,8 @@ off). Give the Pi a fixed address on your router so the link doesn't change.
 ## 3. Manual install (what the script does)
 
 ```bash
-sudo apt install -y python3-venv python3-tk mariadb-server i2c-tools
-sudo raspi-config nonint do_i2c 0
+sudo apt install -y python3-venv python3-tk mariadb-server
+sudo raspi-config nonint do_spi 0
 
 python3 -m venv --system-site-packages .venv
 .venv/bin/pip install -r requirements-pi.txt
@@ -134,7 +134,8 @@ sudo systemctl restart nfc-login
 | Problem | Check |
 |---|---|
 | `No module named 'board'` | You're not in the venv, or `requirements-pi.txt` isn't installed |
-| PN532 not found / `RuntimeError` at start | `i2cdetect -y 1` shows `24`? DIP switches 1 ON 2 OFF? |
+| PN532 not found / `RuntimeError` at start | SPI turned on (`ls /dev/spidev0.0`)? DIP switches 1 OFF 2 ON? SS on pin 29? |
+| Cards sometimes need a second tap to update | Hold them still a moment longer; if it keeps happening, lower `spi_baudrate` or shorten the wires |
 | Keys come out wrong | Swap entries in `[hardware.keypad] rows`/`cols` |
 | Keys repeat or ghost | Add the 10 kΩ pull-downs on the column lines |
 | `Access denied for user` | Password in `config.toml` matches the MariaDB user? |

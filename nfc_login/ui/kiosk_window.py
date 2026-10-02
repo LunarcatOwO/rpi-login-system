@@ -5,11 +5,11 @@ Layout:
     | NFC Sign In            Season 2026              16:42:07    |
     +--------------------------------------+----------------------+
     |  Welcome, Taylor!                    | [Here now 4][Leaders]|
-    |  Signed in at ...                    |  A07 Taylor 1h 02m   |
-    |  ID A07 · Season 2026: 12h 30m       |  B03 Alex   0h 41m   |
+    |  Signed in at ...                    | A007 Taylor Robot 1h |
+    |  ID A007 · Robot                     | 003  Alex  Mentor 0h |
     |  ...                                 |  ...                 |
     +--------------------------------------+----------------------+
-    | > typed keypad input       No card? ID on keypad: A B C D  * admin|
+    | > typed keypad input    No card? Keypad ID: A Robot  B Impact ... |
     +-------------------------------------------------------------+
 
 The right-hand panel has two touch tabs: who is signed in right now (live,
@@ -118,7 +118,7 @@ class KioskWindow:
                           highlightthickness=0, pady=8, activebackground=COLORS["tab"],
                           activeforeground=COLORS["text"])
             button.pack(side="left", fill="x", expand=True)
-        self.side_label = tk.Label(side, font=("DejaVu Sans Mono", 12), anchor="nw",
+        self.side_label = tk.Label(side, font=("DejaVu Sans Mono", 11), anchor="nw",
                                    justify="left", fg=COLORS["text"], bg=COLORS["panel"])
         self.side_label.pack(fill="both", expand=True, padx=10, pady=8)
 
@@ -136,9 +136,11 @@ class KioskWindow:
         self.entry_label = tk.Label(footer, font=("DejaVu Sans Mono", 18, "bold"),
                                     fg=COLORS["prompt"], bg=COLORS["panel"])
         self.entry_label.pack(side="left", padx=12, pady=6)
-        keys = "  ".join(f"{s['letter']}" if s["key"] == s["letter"] else f"{s['key']}={s['letter']}"
-                         for s in self.controller.users.sections)
-        tk.Label(footer, text=f"No card? ID on keypad: {keys}    * admin", font=small,
+        keys = "/".join(s["key"] for s in self.controller.users.sections if s["key"])
+        hint = f"No card? Type your ID: {keys} + number"
+        if self.controller.mentors:
+            hint += ", mentors just the number"
+        tk.Label(footer, text=f"{hint}    * admin", font=small,
                  fg=COLORS["muted"], bg=COLORS["panel"]).pack(side="right", padx=12)
 
         self._select_tab("here")
@@ -214,12 +216,17 @@ class KioskWindow:
             rows = []
             for r in self._here:
                 elapsed = timefmt.format_duration(int((now - r["sign_in_at"]).total_seconds()))
-                rows.append(f"{r['code']} {r['username'][:12]:<12} {elapsed:>7}")
+                rows.append(f"{r['code']:<4} {r['username'][:8]:<8} {self._team(r['section'])} "
+                            f"{elapsed:>7}")
             self.side_label.config(text="\n".join(rows) or "Nobody signed in yet")
         else:
-            rows = [f"{e.rank:>2} {e.code} {e.username[:11]:<11} "
-                    f"{timefmt.format_duration(e.total_seconds):>8}" for e in self._board]
+            # 31 characters: what fits the 300 px panel at this font size.
+            rows = [f"{e.rank:>2} {e.code:<4} {e.username[:6]:<6} {self._team(e.section)} "
+                    f"{timefmt.format_duration(e.total_seconds):>7}" for e in self._board]
             self.side_label.config(text="\n".join(rows) or "No one yet")
+
+    def _team(self, section: str) -> str:
+        return f"{self.controller.users.team_name(section, short=True)[:8]:<8}"
 
     # ------------------------------------------------------------ loops
 
@@ -286,7 +293,7 @@ class KioskWindow:
         key = KEY_MAP.get(event.keysym) or event.char.upper()
         # Typing a section letter (e.g. E) presses that section's keypad key (#).
         for section in self.controller.users.sections:
-            if key == section["letter"]:
+            if key == section["letter"] and section["key"]:
                 key = section["key"]
         if len(key) == 1 and key in "0123456789ABCD*#":
             self.press(key)

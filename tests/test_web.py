@@ -37,9 +37,11 @@ def test_live_status_lists_who_is_here(web, clock):
     users.add("dee", "D")
     attendance.toggle(taylor["id"], "card")
     status = json.load(urllib.request.urlopen(base + "/api/status"))
-    assert [p["code"] for p in status["here"]] == ["A01"]
-    assert [s["letter"] for s in status["sections"]] == list("ABCD")
-    assert {r["code"] for r in status["leaderboard"]} == {"A01", "D01"}
+    assert [(p["code"], p["team"]) for p in status["here"]] == [("A001", "Robot")]
+    assert [s["name"] for s in status["sections"]] == [
+        "Robot", "Impact", "Sustainability", "Strategy", "Mentors"]
+    assert {(r["code"], r["team"]) for r in status["leaderboard"]} == {
+        ("A001", "Robot"), ("D001", "Strategy")}
     page = urllib.request.urlopen(base + "/").read().decode()
     assert "Who's here" in page and "{{REFRESH_MS}}" not in page
 
@@ -52,24 +54,28 @@ def test_admin_requires_pin_then_adjusts_and_adds(web):
         post(op, base + "/admin/login", pin="0000")
     assert err.value.code == 401
     # Not logged in: actions bounce back to the login page and change nothing.
-    page = post(op, base + "/admin/adjust", code="A01", direction="add", hours=5,
+    page = post(op, base + "/admin/adjust", code="A001", direction="add", hours=5,
                 minutes=0).read().decode()
     assert "Admin PIN" in page and attendance.user_stats(taylor["id"]).total_seconds == 0
 
     assert "Add or subtract hours" in post(op, base + "/admin/login", pin="2468").read().decode()
-    page = post(op, base + "/admin/adjust", code="A01", direction="add", hours=2, minutes=15,
+    page = post(op, base + "/admin/adjust", code="A001", direction="add", hours=2, minutes=15,
                 reason="<b>workshop</b>").read().decode()
-    assert "Added 2h 15m to taylor (A01)" in page
+    assert "Added 2h 15m to taylor (A001)" in page
     assert "&lt;b&gt;workshop&lt;/b&gt;" in page
     assert attendance.user_stats(taylor["id"]).total_seconds == 135 * 60
 
-    page = post(op, base + "/admin/adjust", code="A01", direction="subtract", hours=9,
+    page = post(op, base + "/admin/adjust", code="A001", direction="subtract", hours=9,
                 minutes=0).read().decode()
     assert "only has 2h 15m" in page
 
     page = post(op, base + "/admin/users", username="Bea", section="B", pin="").read().decode()
-    assert "Created Bea with ID B01" in page
-    assert users.get_by_code("B01")["username"] == "Bea"
+    assert "Created Bea with ID B001" in page
+    assert users.get_by_code("B001")["username"] == "Bea"
+
+    page = post(op, base + "/admin/team", code="B001", section="M").read().decode()
+    assert "Bea is now in Mentors with ID 001." in page
+    assert users.get_by_code("001")["username"] == "Bea"
 
 
 def test_cross_site_post_rejected(web):

@@ -1,19 +1,30 @@
 # Using the kiosk
 
-## User IDs and sections
+## User IDs and teams
 
-People belong to one of four **sections**, one per letter key on the keypad.
-A user ID is the section letter plus a two-digit number: **A07**, **B12**,
-**D01**. IDs are handed out in order when a user is created (the first person
-in section B is B01), so a section holds up to 99 people.
+Everyone is on one of four **teams**, one per letter key on the keypad, or
+is a **mentor**:
 
-Section names (e.g. "Build team") are set in `[[sections]]` in `config.toml`.
+| Key | Team | IDs |
+|---|---|---|
+| A | Robot | A001 to A999 |
+| B | Impact | B001 to B999 |
+| C | Sustainability | C001 to C999 |
+| D | Strategy | D001 to D999 |
+| (none) | Mentors | 001 to 999, just the number |
+
+IDs are handed out in order when a user is created (the first person on
+Impact is B001), so each team and the mentors hold up to 999 people. Only an
+admin picks someone's team: when creating them, when moving them, or the
+first time an imported card is tapped (see below).
+
+Team names are set in `[[sections]]` in `config.toml`.
 
 ## Signing in and out
 
 Hold your card on the reader until the screen changes.
 
-- **Signed out → signed in:** "Welcome, *name*!" with your ID, season total and rank.
+- **Signed out → signed in:** "Welcome, *name*!" with your ID, team, season total and rank.
 - **Signed in → signed out:** "Goodbye, *name*!" with this session's length,
   your new total and rank.
 
@@ -38,8 +49,9 @@ The right side of the kiosk screen has two tabs you can tap:
 - **Leaderboard:** the season ranking.
 
 The same live list is on a web page anyone on the network can open on a
-phone or laptop: **`http://<pi-address>:8080/`**. It's grouped by section,
-updates every 3 seconds, and shows the leaderboard too. The Pi's address is
+phone or laptop: **`http://<pi-address>:8080/`**. It's grouped by team,
+updates every 3 seconds, and shows the leaderboard (with each person's team)
+too. The Pi's address is
 shown under the admin menu → 5 (System info).
 
 ![Live page](images/web-live.png)
@@ -47,8 +59,8 @@ shown under the admin menu → 5 (System info).
 ## Keypad
 
 ```
- 1  2  3  A        A B C D   start typing a user ID (A07, B12...)
- 4  5  6  B        0-9       digits
+ 1  2  3  A        A B C D   start typing a team member's ID (A007, B012...)
+ 4  5  6  B        0-9       digits. From the start screen: a mentor's ID (007)
  7  8  9  C        *         delete / back. From the start screen: admin menu
  *  0  #  D        #         Enter
 ```
@@ -57,8 +69,9 @@ Half-typed input clears itself after 30 seconds.
 
 ### Look yourself up, or sign in without your card
 
-Type your ID: the section letter, then the number (`B` `0` `7`). After two
-digits it goes straight through (or type `B` `7` `#`). The screen shows your
+Type your ID: the team letter, then the number (`B` `0` `0` `7`). After
+three digits it goes straight through (or type `B` `7` `#`). Mentors type
+just their number (`0` `0` `7`, or `7` `#`). The screen shows your
 season time, rank, whether you're signed in, and your last sign-in and
 sign-out.
 
@@ -77,6 +90,7 @@ Press **`*`** on the start screen, enter the admin PIN, `#`, then:
 | 3 | Who is here |
 | 4 | Sign everyone out (end of the day; time is credited) |
 | 5 | System info (hostname, IP address, reader firmware) |
+| 6 | **Change someone's team:** type the user ID, then the team's number (1-5) or letter. They get the next free ID there |
 | * | Back / exit |
 
 Typing time for option 2: hours then two-digit minutes. `130` = 1h 30m,
@@ -91,8 +105,9 @@ otherwise the only way is the admin command line on the Pi.
 
 - **Add or subtract hours** for anyone, with a reason. Every change is listed
   under "Recent adjustments" and in the season's archive CSV.
-- **Add a user** (name, section, optional PIN). They get the next free ID.
-- See every user's ID, section, season time and rank.
+- **Add a user** (name, team, optional PIN). They get the next free ID.
+- **Change someone's team.** They get the next free ID in the new team.
+- See every user's ID, team, season time and rank.
 - Sign everyone out.
 
 ![Admin page](images/web-admin.png)
@@ -116,20 +131,20 @@ Run on the Pi from the repo folder (over SSH is fine):
 |---|---|
 | `init-db` | Create tables and the first season. Safe to re-run. |
 | `set-admin-pin` | Set the admin PIN (kiosk and web page) |
-| `user add "Name" --section B [--pin]` | Create a user (prints the new ID, e.g. B04) |
-| `user list [--all]` | List users with ID and section |
-| `user show B04` | Time, rank, last sign-in/out |
-| `user rename B04 "New Name"` | Change a username |
-| `user move U03 B` | Put someone in another section (they get its next free ID) |
-| `user set-pin B04 [--clear]` | Set or remove a keypad PIN |
-| `user deactivate B04` / `activate B04` | Hide someone (history is kept; their cards stop working) |
-| `hours add B04 1h30m [--reason "..."]` | Add time this season |
-| `hours subtract B04 45m [--reason "..."]` | Take time off (not below zero) |
+| `user add "Name" --section B [--pin]` | Create a user on a team (A-D, or M for a mentor); prints the new ID, e.g. B004 |
+| `user list [--all]` | List users with ID and team |
+| `user show B004` | Time, rank, last sign-in/out |
+| `user rename B004 "New Name"` | Change a username |
+| `user move U003 B` | Put someone on another team, or `M` for mentors (they get its next free ID) |
+| `user set-pin B004 [--clear]` | Set or remove a keypad PIN |
+| `user deactivate B004` / `activate B004` | Hide someone (history is kept; their cards stop working) |
+| `hours add B004 1h30m [--reason "..."]` | Add time this season |
+| `hours subtract B004 45m [--reason "..."]` | Take time off (not below zero) |
 | `hours history` | Recent adjustments |
-| `tag enroll B04 [--uid HEX]` | Link a card. Without `--uid` it waits for a tap (stop the kiosk first) |
+| `tag enroll B004 [--uid HEX]` | Link a card. Without `--uid` it waits for a tap (stop the kiosk first) |
 | `tag list` | All cards and owners |
 | `tag remove UID` | Lost card: stop it working |
-| `tag read` | Print the UID of the card on the reader |
+| `tag read` | Print the UID, card type and the info written on the card on the reader (retries if the card wobbles) |
 | `buzzer [PATTERN...]` | Play buzzer patterns to check the wiring (all of them by default) |
 | `season show` / `season list` | Current / all seasons |
 | `season new [NAME] [--yes]` | Season reset (see [seasons.md](seasons.md)) |

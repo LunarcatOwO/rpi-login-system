@@ -24,7 +24,7 @@ message with two records:
 **1. Link (URI record)** — first, so a phone that taps the card opens it:
 
 ```
-https://lunarcatowo.github.io/rpi-login-system/?id=B12
+https://lunarcatowo.github.io/rpi-login-system/?id=B012
 ```
 
 This is a **placeholder** for a future GitHub Pages site that can read the
@@ -35,7 +35,7 @@ treat it as authoritative.
 **2. Info (Text record, English, UTF-8):**
 
 ```
-ID: B12
+ID: B012
 User: taylor
 Season: 2026
 Time: 12h 34m
@@ -51,7 +51,7 @@ that card was tapped.
 
 | Tag | NDEF space | What fits |
 |---|---|---|
-| NTAG213 | 144 bytes | Link + one-line summary: `B12\|taylor\|12h34m\|#3\|in 10-01 16:30\|out 10-01 18:05` |
+| NTAG213 | 144 bytes | Link + one-line summary: `B012\|taylor\|12h34m\|#3\|in 10-01 16:30\|out 10-01 18:05` |
 | NTAG215 | 496 bytes | Everything (recommended) |
 | NTAG216 | 872 bytes | Everything |
 | MIFARE Classic 1K | 720 bytes | Everything, but phones can't read it (see below) |
