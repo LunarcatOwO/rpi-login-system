@@ -44,6 +44,15 @@ footer .hint { color: var(--muted); font-size: 13px; white-space: pre; overflow:
   align-items: center; font-size: 13px; }
 .sim.on { display: flex; }
 .sim input { width: 160px; font: 13px var(--mono); }
+/* On-screen keyboard for a new user's name; it takes the side panel's room. */
+.kbd { display: none; margin-top: 10px; }
+body.typing .kbd { display: block; }
+body.typing aside { display: none; }
+.kbd div { display: flex; gap: 4px; margin-bottom: 4px; }
+.kbd button { flex: 1; font: bold 20px var(--sans); border: 0; border-radius: 4px; padding: 10px 0;
+  background: var(--tab); color: var(--text); cursor: inherit; }
+.kbd button:active { background: var(--panel); }
+.kbd button.done { background: var(--success); color: var(--bg); }
 .offline { position: fixed; inset: auto 0 0 auto; margin: 8px; padding: 4px 8px; border-radius: 4px;
   background: var(--error); color: #fff; font-size: 13px; display: none; }
 .offline.on { display: block; }
@@ -59,6 +68,7 @@ footer .hint { color: var(--muted); font-size: 13px; white-space: pre; overflow:
   <section class="status">
     <h1 id="title"></h1>
     <div class="lines" id="lines"></div>
+    <div class="kbd" id="kbd"></div>
   </section>
   <aside>
     <div class="tabs">
@@ -94,6 +104,23 @@ function showScreen(s) {
   $("title").style.color = TONES.includes(s.tone) ? `var(--${s.tone})` : "var(--text)";
   $("lines").textContent = s.lines.join("\n");
   $("entry").textContent = s.entry === null ? "" : "> " + s.entry;
+  document.body.classList.toggle("typing", !!s.keyboard);
+}
+
+function typing() { return document.body.classList.contains("typing"); }
+
+// On-screen keyboard: letters go in lower case; the kiosk capitalises names.
+for (const row of ["QWERTYUIOP", "ASDFGHJKL'", "ZXCVBNM-.", ["Space", "Delete", "Done"]]) {
+  const line = document.createElement("div");
+  for (const label of row) {
+    const b = document.createElement("button");
+    b.textContent = label;
+    const char = { Space: " ", Delete: "back", Done: "done" }[label] || label.toLowerCase();
+    if (label === "Done") b.className = "done";
+    b.onclick = () => post("/type", { char });
+    line.append(b);
+  }
+  $("kbd").append(line);
 }
 
 function cell(text, cls) {
@@ -153,6 +180,11 @@ $("tap").onclick = () => post("/tap", { uid: $("uid").value });
 // The computer keyboard works as the keypad (handy in the simulator or with a USB keyboard).
 document.addEventListener("keydown", e => {
   if (e.target === $("uid")) { if (e.key === "Enter") $("tap").click(); return; }
+  if (typing() && e.key !== "Escape") {   // a USB keyboard types the name too
+    const char = { Enter: "done", Backspace: "back" }[e.key] || (e.key.length === 1 ? e.key : "");
+    if (char) { e.preventDefault(); post("/type", { char }); }
+    return;
+  }
   const map = { Enter: "#", Backspace: "*", Escape: "*" };
   let key = map[e.key] || e.key.toUpperCase();
   if (key.length === 1 && "0123456789ABCD*#".includes(key)) { e.preventDefault(); post("/key", { key }); }

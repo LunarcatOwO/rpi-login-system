@@ -65,16 +65,20 @@ else
     # The app starts the kiosk itself; two programs can't share the reader.
     sudo systemctl disable --now nfc-login.service 2>/dev/null || true
 
-    mkdir -p "$HOME/.config/autostart"
-    cat > "$HOME/.config/autostart/nfc-kiosk.desktop" <<EOF
+    # Starts at login, and is in the desktop menu to reopen it after
+    # closing it (admin menu 8 on the keypad).
+    mkdir -p "$HOME/.config/autostart" "$HOME/.local/share/applications"
+    cat > "$HOME/.local/share/applications/nfc-kiosk.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=NFC Kiosk
 Comment=NFC sign-in kiosk
 Exec=$APP_DIR/electron/electron $REPO_DIR/electron --home $REPO_DIR
 Terminal=false
+Categories=Utility;
 X-GNOME-Autostart-enabled=true
 EOF
+    cp "$HOME/.local/share/applications/nfc-kiosk.desktop" "$HOME/.config/autostart/"
 fi
 
 echo "==> 4/5 Boot straight to the desktop, screen always on"
@@ -82,8 +86,9 @@ sudo raspi-config nonint do_boot_behaviour B4    # desktop, logged in automatica
 sudo raspi-config nonint do_blanking 1           # 1 = screen blanking off
 
 echo "==> 5/5 Done"
-echo "After a reboot the kiosk opens fullscreen by itself. Ctrl+Alt+Q quits it."
-echo "Add people with: .venv/bin/python -m nfc_login.admin user add \"Name\" --section A"
+echo "After a reboot the kiosk opens fullscreen by itself. To close it: admin menu 8"
+echo "on the keypad (or Ctrl+Alt+Q). Reopen it from the desktop menu: NFC Kiosk."
+echo "Add people on the kiosk: press *, the admin PIN, #, then 7."
 read -r -p "Reboot now? [Y/n] " answer
 case "$answer" in
     [nN]*) echo "Reboot when you're ready: sudo reboot" ;;

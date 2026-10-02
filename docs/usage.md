@@ -94,10 +94,15 @@ Press **`*`** on the start screen, enter the admin PIN, `#`, then:
 | 4 | Sign everyone out (end of the day; time is credited) |
 | 5 | System info (hostname, IP address, reader firmware) |
 | 6 | **Change someone's team:** type the user ID, then the team's number (1-5) or letter. They get the next free ID there |
-| * | Back / exit |
+| 7 | **Add a user:** pick the team (1-5), type the name on the on-screen keyboard (or a USB keyboard), tap **Done**. The screen shows their new ID; tap their card to enroll it, or `*` to skip |
+| 8 | **Close the kiosk app** (asks first: `#` to close). The Pi's desktop shows; restart the Pi, or open **NFC Kiosk** from the desktop menu, to bring it back |
+| * | Leave the admin menu |
 
 Typing time for option 2: hours then two-digit minutes. `130` = 1h 30m,
 `45` = 45m, `200` = 2h.
+
+Everything an admin needs day to day is on this menu, so the kiosk works
+without anyone opening the web page.
 
 Only admins can enroll cards: the kiosk asks for the admin PIN first, and
 otherwise the only way is the admin command line on the Pi.

@@ -121,10 +121,16 @@ class PN532Reader:
         self._monotonic = monotonic
         self._uid: bytes | None = None   # last card read, target of reads and writes
         self._deadline = 0.0
+        self._firmware: str | None = None
 
     def firmware_version(self) -> str:
-        ic, ver, rev, _support = self._pn532.firmware_version
-        return f"PN5{ic:02x} firmware {ver}.{rev}"
+        # Asked once, at startup. Asking again later (System info on the admin
+        # menu) would talk to the PN532 from the keypad thread while the card
+        # thread is mid-poll, which garbles both and froze the kiosk.
+        if self._firmware is None:
+            ic, ver, rev, _support = self._pn532.firmware_version
+            self._firmware = f"PN5{ic:02x} firmware {ver}.{rev}"
+        return self._firmware
 
     def read_uid(self) -> str | None:
         uid = self._pn532.read_passive_target(timeout=self.poll_timeout)
