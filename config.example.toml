@@ -25,6 +25,18 @@ enabled = false                 # legacy 16x2 I2C LCD; always on in headless mod
 i2c_bus = 1
 address = 0x27
 
+[hardware.buzzer]
+enabled = true
+pin = 12                        # BCM; physical pin 32 (see docs/hardware.md)
+type = "active"                 # or "passive" (driven with a tone at `frequency`)
+frequency = 2700
+active_low = false              # true for modules that beep when the pin is LOW
+key_clicks = true               # short click on each keypad press
+
+# Change any pattern: milliseconds on, off, on, off... (see docs/hardware.md)
+[hardware.buzzer.patterns]
+# sign_in = [70, 50, 70, 50, 180]
+
 [hardware.keypad]
 enabled = true
 # BCM pin numbers from the Da Vinci Kit "2.1.5 Keypad" lesson.

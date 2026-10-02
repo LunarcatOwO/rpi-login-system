@@ -7,7 +7,7 @@ import logging
 
 from nfc_login.app import build_services
 from nfc_login.config import load_config
-from nfc_login.hardware import create_keypad, create_lcd, create_reader
+from nfc_login.hardware import create_buzzer, create_keypad, create_lcd, create_reader
 from nfc_login.hardware.keypad import KeypadPoller
 from nfc_login.kiosk.controller import KioskController
 from nfc_login.kiosk.nfc_worker import NfcWorker
@@ -41,6 +41,7 @@ def main() -> None:
 
     reader = create_reader(config)
     keypad = create_keypad(config)
+    buzzer = create_buzzer(config)
     logging.info("NFC reader: %s", reader.firmware_version())
 
     controller = KioskController(
@@ -59,7 +60,7 @@ def main() -> None:
 
     if config.ui["mode"] == "headless":
         from nfc_login.kiosk.headless import HeadlessKiosk
-        kiosk = HeadlessKiosk(controller, mirrors)
+        kiosk = HeadlessKiosk(controller, mirrors, buzzer)
         run = kiosk.run_forever
     else:
         import tkinter as tk
@@ -68,7 +69,7 @@ def main() -> None:
         root = tk.Tk()
         simulated = reader if config.hardware["mode"] == "simulated" else None
         kiosk = KioskWindow(root, controller, config.ui, simulated_reader=simulated,
-                            mirrors=mirrors)
+                            mirrors=mirrors, buzzer=buzzer)
         run = root.mainloop
 
     NfcWorker(reader, controller, kiosk.publish).start()
