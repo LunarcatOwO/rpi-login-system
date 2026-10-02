@@ -14,9 +14,10 @@ is a **mentor**:
 | (none) | Mentors | 001 to 999, just the number |
 
 IDs are handed out in order when a user is created (the first person on
-Impact is B001), so each team and the mentors hold up to 999 people. Only an
-admin picks someone's team: when creating them, when moving them, or the
-first time an imported card is tapped (see below).
+Impact is B001), so each team and the mentors hold up to 999 people. An
+admin picks someone's team when creating or moving them. The one exception
+is an imported old card: on its first tap the owner picks their own team,
+and only choosing Mentors needs the admin PIN (see below).
 
 Team names are set in `[[sections]]` in `config.toml`.
 
