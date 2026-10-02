@@ -42,11 +42,3 @@ def leaderboard(cur, season_id: int) -> list[LeaderboardEntry]:
 
 def find_entry(entries: list[LeaderboardEntry], user_id: int) -> LeaderboardEntry | None:
     return next((e for e in entries if e.user_id == user_id), None)
-
-
-def team_totals(entries: list[LeaderboardEntry]) -> tuple[int, dict[str, int]]:
-    """Everyone's season time added up, and the same per team (section letter)."""
-    teams: dict[str, int] = {}
-    for e in entries:
-        teams[e.section] = teams.get(e.section, 0) + e.total_seconds
-    return sum(teams.values()), teams
