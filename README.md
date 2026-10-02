@@ -90,6 +90,7 @@ python3 -m nfc_login --simulate --windowed
 | [docs/legacy.md](docs/legacy.md) | Importing from the old attendance system, old MIFARE Classic cards |
 | [docs/database.md](docs/database.md) | MariaDB tables and how hours are calculated |
 | [docs/architecture.md](docs/architecture.md) | How the code is organised |
+| [electron/README.md](electron/README.md) | The desktop app: the kiosk fullscreen as an Electron app, packaged for the Pi |
 
 ## Code layout
 

@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NFC Sign In</title>
+<style>
+/* Laid out for the 5 inch 800x480 touchscreen, like the Tkinter kiosk. */
+:root {
+  --bg: #101418; --panel: #1b2129; --tab: #262e38; --text: #e8edf2; --muted: #8a97a6;
+  --info: #4aa3ff; --success: #3ccf7a; --warning: #f2b33d; --error: #ff5c5c; --prompt: #c58cff;
+  --sans: "DejaVu Sans", "Noto Sans", system-ui, sans-serif;
+  --mono: "DejaVu Sans Mono", "Noto Sans Mono", ui-monospace, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+  font-family: var(--sans); overflow: hidden; user-select: none; }
+body { display: flex; flex-direction: column; }
+body.kiosk { cursor: none; }
+header, footer { background: var(--panel); display: flex; align-items: center; padding: 0 12px; }
+header { height: 42px; gap: 16px; }
+header .name { font-weight: bold; font-size: 20px; flex: 1; }
+header .season { color: var(--muted); font-size: 17px; }
+header .clock { font-size: 20px; font-variant-numeric: tabular-nums; }
+main { flex: 1; display: flex; min-height: 0; }
+.status { flex: 1; padding: 14px 16px; min-width: 0; }
+.status h1 { margin: 0; font-size: 31px; line-height: 1.2; overflow-wrap: anywhere; }
+.status .lines { margin-top: 12px; font-size: 18px; line-height: 1.35; white-space: pre-wrap; }
+aside { width: 300px; margin: 10px 10px 10px 0; background: var(--panel); display: flex;
+  flex-direction: column; min-height: 0; }
+.tabs { display: flex; }
+.tabs button { flex: 1; font: bold 16px var(--sans); border: 0; padding: 9px 0; background: var(--panel);
+  color: var(--muted); cursor: inherit; }
+.tabs button.on { background: var(--tab); color: var(--text); }
+table { border-collapse: collapse; margin: 6px 8px; font: 14px/1.45 var(--mono); width: calc(100% - 16px);
+  table-layout: fixed; }
+td { white-space: nowrap; overflow: hidden; text-overflow: clip; padding: 0 3px 0 0; }
+td.r { text-align: right; padding: 0; }
+.empty { color: var(--muted); padding: 8px 10px; font-size: 15px; }
+footer { height: 36px; justify-content: space-between; gap: 12px; }
+footer .entry { font: bold 22px var(--mono); color: var(--prompt); white-space: nowrap; }
+footer .hint { color: var(--muted); font-size: 13px; white-space: pre; overflow: hidden; }
+.sim { display: none; background: #2a1f00; color: #ffd27a; padding: 4px 8px; gap: 6px;
+  align-items: center; font-size: 13px; }
+.sim.on { display: flex; }
+.sim input { width: 160px; font: 13px var(--mono); }
+.offline { position: fixed; inset: auto 0 0 auto; margin: 8px; padding: 4px 8px; border-radius: 4px;
+  background: var(--error); color: #fff; font-size: 13px; display: none; }
+.offline.on { display: block; }
+</style>
+</head>
+<body>
+<header>
+  <span class="name">NFC Sign In</span>
+  <span class="season" id="season"></span>
+  <span class="clock" id="clock"></span>
+</header>
+<main>
+  <section class="status">
+    <h1 id="title"></h1>
+    <div class="lines" id="lines"></div>
+  </section>
+  <aside>
+    <div class="tabs">
+      <button id="tab-here" class="on">Here now</button>
+      <button id="tab-board">Leaderboard</button>
+    </div>
+    <div id="side" style="overflow:hidden"></div>
+  </aside>
+</main>
+<footer>
+  <span class="entry" id="entry"></span>
+  <span class="hint" id="hint"></span>
+</footer>
+<div class="sim" id="sim">
+  SIMULATOR card UID: <input id="uid" value="04A1B2C3D4E5F6">
+  <button id="tap">Tap card</button> Enter=#  Backspace/Esc=*
+</div>
+<div class="offline" id="offline">Kiosk service not responding…</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const TONES = ["info", "success", "warning", "error", "prompt"];
+let tab = "here", side = null;
+
+if (new URLSearchParams(location.search).has("kiosk")) document.body.classList.add("kiosk");
+
+function post(path, data) {
+  return fetch(path, { method: "POST", body: new URLSearchParams(data) }).catch(() => {});
+}
+
+function showScreen(s) {
+  $("title").textContent = s.title;
+  $("title").style.color = TONES.includes(s.tone) ? `var(--${s.tone})` : "var(--text)";
+  $("lines").textContent = s.lines.join("\n");
+  $("entry").textContent = s.entry === null ? "" : "> " + s.entry;
+}
+
+function cell(text, cls) {
+  const td = document.createElement("td");
+  td.textContent = text;
+  if (cls) td.className = cls;
+  return td;
+}
+
+function renderSide() {
+  if (!side) return;
+  $("tab-here").textContent = `Here now (${side.here.length})`;
+  $("tab-here").classList.toggle("on", tab === "here");
+  $("tab-board").classList.toggle("on", tab === "board");
+  const rows = tab === "here" ? side.here : side.board;
+  const box = $("side");
+  box.replaceChildren();
+  if (!rows.length) {
+    const p = document.createElement("div");
+    p.className = "empty";
+    p.textContent = tab === "here" ? "Nobody signed in yet" : "No one yet";
+    box.append(p);
+    return;
+  }
+  const table = document.createElement("table");
+  const widths = tab === "here" ? ["4.5ch", "8.5ch", "8.5ch", ""] : ["2.5ch", "4.5ch", "6.5ch", "8.5ch", ""];
+  const cols = document.createElement("colgroup");
+  for (const w of widths) { const c = document.createElement("col"); if (w) c.style.width = w; cols.append(c); }
+  table.append(cols);
+  for (const r of rows) {
+    const tr = document.createElement("tr");
+    if (tab === "board") tr.append(cell(r.rank, "r"));
+    tr.append(cell(r.code), cell(r.name), cell(r.team), cell(r.time, "r"));
+    table.append(tr);
+  }
+  box.append(table);
+}
+
+async function loadSide() {
+  try {
+    const res = await fetch("/api/kiosk", { cache: "no-store" });
+    if (!res.ok) return;
+    side = await res.json();
+    $("season").textContent = "Season " + side.season;
+    const keys = side.keys.map(k => k.key).join("/");
+    $("hint").textContent = `No card? Type your ID: ${keys} + number` +
+      (side.mentors ? ", mentors numbers only" : "") + "    * admin";
+    $("sim").classList.toggle("on", side.simulated);
+    renderSide();
+  } catch (e) { /* the event stream shows the offline notice */ }
+}
+
+$("tab-here").onclick = () => { tab = "here"; renderSide(); };
+$("tab-board").onclick = () => { tab = "board"; renderSide(); };
+$("tap").onclick = () => post("/tap", { uid: $("uid").value });
+
+// The computer keyboard works as the keypad (handy in the simulator or with a USB keyboard).
+document.addEventListener("keydown", e => {
+  if (e.target === $("uid")) { if (e.key === "Enter") $("tap").click(); return; }
+  const map = { Enter: "#", Backspace: "*", Escape: "*" };
+  let key = map[e.key] || e.key.toUpperCase();
+  if (key.length === 1 && "0123456789ABCD*#".includes(key)) { e.preventDefault(); post("/key", { key }); }
+});
+
+function connect() {
+  const events = new EventSource("/events");
+  events.onopen = () => { $("offline").classList.remove("on"); loadSide(); };
+  events.onmessage = e => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === "screen") showScreen(msg.screen);
+    if (msg.type === "refresh") loadSide();
+  };
+  events.onerror = () => $("offline").classList.add("on");   // EventSource retries by itself
+}
+
+function tick() { $("clock").textContent = new Date().toLocaleTimeString("en-GB"); }
+tick();
+setInterval(tick, 1000);
+setInterval(loadSide, 5000);
+connect();
+</script>
+</body>
+</html>
