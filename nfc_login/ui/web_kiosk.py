@@ -27,6 +27,7 @@ from urllib.parse import parse_qs, urlparse
 
 from nfc_login.kiosk.controller import KioskController, Screen
 from nfc_login.services import timefmt
+from nfc_login.services.leaderboard import team_totals
 
 log = logging.getLogger(__name__)
 
@@ -136,13 +137,21 @@ class WebKiosk:
             "team": users.team_name(r["section"], short=True),
             "time": timefmt.format_duration(int((now - r["sign_in_at"]).total_seconds())),
         } for r in att.currently_signed_in()]
+        everyone = att.leaderboard()
         board = [{
             "rank": e.rank, "code": e.code, "name": e.username,
             "team": users.team_name(e.section, short=True),
             "time": timefmt.format_duration(e.total_seconds),
-        } for e in att.leaderboard(self.cfg["leaderboard_size"])]
+        } for e in everyone[:self.cfg["leaderboard_size"]]]
+        total, teams = team_totals(everyone)
+        totals = [{"name": "everyone", "time": timefmt.format_duration(total)}]
+        totals += [{"name": s["name"], "time": timefmt.format_duration(teams.pop(s["letter"], 0))}
+                   for s in users.sections]
+        totals += [{"name": users.team_name(k), "time": timefmt.format_duration(v)}
+                   for k, v in teams.items() if v]
         keys = [{"key": s["key"], "name": s["name"]} for s in users.sections if s["key"]]
         return {"season": att.active_season_name(), "here": here, "board": board,
+                "totals": totals,
                 "keys": keys, "mentors": self.controller.mentors,
                 "simulated": self.simulated_reader is not None}
 
