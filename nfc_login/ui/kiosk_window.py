@@ -139,7 +139,7 @@ class KioskWindow:
         keys = "/".join(s["key"] for s in self.controller.users.sections if s["key"])
         hint = f"No card? Type your ID: {keys} + number"
         if self.controller.mentors:
-            hint += ", mentors just the number"
+            hint += ", mentors numbers only"
         tk.Label(footer, text=f"{hint}    * admin", font=small,
                  fg=COLORS["muted"], bg=COLORS["panel"]).pack(side="right", padx=12)
 
