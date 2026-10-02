@@ -1,0 +1,48 @@
+{
+  "name": "nfc-kiosk",
+  "productName": "NFC Kiosk",
+  "version": "0.1.0",
+  "description": "Desktop app for the NFC sign-in kiosk: starts the Python kiosk and shows its screen fullscreen.",
+  "main": "main.js",
+  "license": "MIT",
+  "author": "rpi-login-system",
+  "homepage": "https://github.com/LunarcatOwO/rpi-login-system",
+  "scripts": {
+    "start": "electron . --windowed",
+    "simulate": "electron . --windowed --simulate",
+    "dist:pi": "electron-builder --linux AppImage deb --arm64 --publish never",
+    "dist:x64": "electron-builder --linux AppImage --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "io.github.lunarcatowo.nfckiosk",
+    "productName": "NFC Kiosk",
+    "executableName": "nfc-kiosk",
+    "files": [
+      "main.js",
+      "loading.html",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "linux": {
+      "category": "Utility",
+      "maintainer": "rpi-login-system <noreply@github.com>",
+      "synopsis": "NFC sign-in kiosk",
+      "artifactName": "nfc-kiosk-${version}-${arch}.${ext}"
+    },
+    "deb": {
+      "depends": [
+        "libgtk-3-0 | libgtk-3-0t64",
+        "libnss3",
+        "libxss1",
+        "libasound2 | libasound2t64"
+      ]
+    },
+    "publish": []
+  }
+}

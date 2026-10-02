@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NFC Sign In</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #101418; color: #e8edf2;
+    font-family: "DejaVu Sans", system-ui, sans-serif; cursor: none; }
+  body { display: grid; place-items: center; text-align: center; }
+  h1 { font-size: 30px; margin: 0 0 12px; }
+  p { color: #8a97a6; margin: 4px 0; font-size: 17px; }
+  pre { color: #ff5c5c; text-align: left; font-size: 12px; max-width: 760px;
+    white-space: pre-wrap; margin: 12px auto 0; max-height: 220px; overflow: hidden; }
+</style>
+</head>
+<body>
+<div>
+  <h1 id="title">Starting the kiosk…</h1>
+  <p id="detail">Connecting to the database and the card reader.</p>
+  <pre id="log"></pre>
+</div>
+<script>
+  // main.js fills these in when the kiosk service fails to start.
+  const q = new URLSearchParams(location.search);
+  if (q.get("error")) {
+    document.getElementById("title").textContent = "The kiosk stopped";
+    document.getElementById("detail").textContent = q.get("error");
+    document.getElementById("log").textContent = q.get("log") || "";
+  }
+</script>
+</body>
+</html>
