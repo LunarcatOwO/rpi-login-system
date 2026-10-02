@@ -16,9 +16,9 @@ Keypad (Da Vinci Kit 4x4), with the default teams:
     #           Enter, once you've started typing.
 
 A card imported from the legacy system belongs to a user with a U ID (no
-team yet). Its first scan asks for the admin PIN, the admin picks the team,
-which gives the user their real ID, and then they're signed in. Admins can
-also change anyone's team from the admin menu.
+team yet). On its first scan the person picks their own team, which gives
+them their real ID, and then they're signed in. Choosing Mentors needs the
+admin PIN. Admins can also change anyone's team from the admin menu.
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ ENROLL_SCAN = "enroll_scan"
 ADJUST_ID = "adjust_id"
 ADJUST_AMOUNT = "adjust_amount"
 MOVE_ID = "move_id"           # admin: whose team to change
-PICK_TEAM = "pick_team"       # admin chooses a team (legacy card, or MOVE_ID)
+PICK_TEAM = "pick_team"       # a team is chosen (legacy card's owner, or admin via MOVE_ID)
 
 ID_STATES = (USER_ID, ENROLL_ID, ADJUST_ID, MOVE_ID)
 PIN_STATES = (USER_PIN, ADMIN_PIN)
@@ -183,13 +183,8 @@ class KioskController:
             return screen
 
     def _legacy_card(self, uid: str, user: dict) -> Screen:
-        """An imported card with no team yet: an admin has to choose one first."""
-        if not self.users.admin_pin_set():
-            return self._result(f"Hi, {user['username']}", [
-                "Your card is from the old system and needs a team, but no admin",
-                "PIN is set. Ask an admin to run: python3 -m nfc_login.admin user move",
-            ], "error")
-        self.state = ADMIN_PIN
+        """An imported card with no team yet: its owner picks one first."""
+        self.state = PICK_TEAM
         self.context = {"uid": uid, "user": user, "legacy": True}
         screen = self._redraw()
         screen.sound = "attention"
@@ -289,6 +284,9 @@ class KioskController:
             return self._redraw()
         if self.state == PICK_TEAM and "uid" not in self.context:
             self.state = MOVE_ID
+            return self._redraw()
+        if self.state == ADMIN_PIN and self.context.get("legacy"):
+            self.state = PICK_TEAM      # back from the mentor check to the team list
             return self._redraw()
         if self.state in (ENROLL_ID, ADJUST_ID, ENROLL_SCAN, MOVE_ID):
             self.state, self.context = ADMIN_MENU, {}
@@ -392,8 +390,7 @@ class KioskController:
         if self.users.check_admin_pin(pin):
             self._pin_failures = 0
             if self.context.get("legacy"):
-                self.state = PICK_TEAM
-                return self._redraw()
+                return self._set_team(self.context["section"])
             self.state = ADMIN_MENU
             screen = self._redraw()
             screen.sound = "admin"
@@ -495,6 +492,16 @@ class KioskController:
         section = self.team_choices.get(key) or self.section_keys.get(key)
         if not section:
             return self._redraw()
+        if self.context.get("legacy") and section == ids.MENTORS:
+            # People choose their own team, but only an admin can make a mentor.
+            if not self.users.admin_pin_set():
+                return self._error_keep_state("Mentors need an admin, and no admin PIN is set.")
+            self.state = ADMIN_PIN
+            self.context["section"] = section
+            return self._redraw()
+        return self._set_team(section)
+
+    def _set_team(self, section: str) -> Screen:
         uid, user = self.context.get("uid"), self.context["user"]
         self._reset()
         team = self.users.team_name(section)
@@ -520,8 +527,15 @@ class KioskController:
             return self._user_menu_screen()
         if self.state == PICK_TEAM:
             user = self.context["user"]
+            legacy = self.context.get("legacy")
             choices = [f"{key}  {self.users.team_name(letter)}"
+                       + ("  (needs an admin)" if legacy and letter == ids.MENTORS else "")
                        for key, letter in self.team_choices.items()]
+            if legacy:
+                return Screen(f"Welcome, {user['username']}!", [
+                    "Please choose your team before signing in.",
+                    *choices, "*  cancel (you won't be signed in)",
+                ], "prompt")
             cancel = ("*  cancel (they won't be signed in)" if "uid" in self.context
                       else "*  back")
             return Screen(f"Team for {user['username']}", [
@@ -530,11 +544,11 @@ class KioskController:
             ], "prompt")
         if self.state == ADMIN_PIN and self.context.get("legacy"):
             user = self.context["user"]
-            return Screen(f"Welcome, {user['username']}!", [
-                "Please choose your team before signing in.",
+            return Screen(f"{user['username']} as a mentor", [
+                "An admin needs to confirm this.",
                 "",
                 "Admin: type the PIN, then #",
-                "*  cancel (you won't be signed in)",
+                "*  back to the teams",
             ], "prompt", entry="•" * len(self.buffer))
         if self.state == ENROLL_SCAN:
             user = self.context["user"]

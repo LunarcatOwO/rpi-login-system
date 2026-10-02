@@ -129,7 +129,7 @@ def test_name_clash_and_card_clash(services, db, legacy, clock):
     assert any("already belongs" in w for w in summary.warnings)
 
 
-def test_admin_picks_the_team_on_an_imported_cards_first_scan(services, db, legacy, clock):
+def test_people_pick_their_own_team_on_an_old_cards_first_scan(services, db, legacy, clock):
     from nfc_login.hardware.simulated import SimulatedReader
     from nfc_login.kiosk import controller as kc
 
@@ -141,19 +141,12 @@ def test_admin_picks_the_team_on_an_imported_cards_first_scan(services, db, lega
     controller = kc.KioskController(attendance, users, reader=SimulatedReader())
 
     screen = controller.handle_card("DEADBEEF")              # Ana, signed out
-    assert controller.state == kc.ADMIN_PIN and screen.title == "Welcome, Ana!"
+    assert controller.state == kc.PICK_TEAM and screen.title == "Welcome, Ana!"
+    assert screen.lines[0] == "Please choose your team before signing in."
+    assert "3  Sustainability" in screen.lines
+    assert "5  Mentors  (needs an admin)" in screen.lines
     assert screen.buzz == "attention"
-    for key in "1111#":                                      # not the admin: no team, no sign-in
-        screen = controller.handle_key(key)
-    assert screen.title == "Wrong PIN" and controller.state == kc.IDLE
-    assert all(r["username"] != "Ana" for r in attendance.currently_signed_in())
-
-    controller.handle_card("DEADBEEF")
-    for key in "2468#":
-        screen = controller.handle_key(key)
-    assert controller.state == kc.PICK_TEAM and screen.title == "Team for Ana"
-    assert "3  Sustainability" in screen.lines and "5  Mentors" in screen.lines
-    assert controller.handle_key("9").title == "Team for Ana"    # not a choice: ask again
+    assert controller.handle_key("9").title == "Welcome, Ana!"   # not a choice: ask again
     screen = controller.handle_key("3")
     assert screen.title == "Welcome, Ana!" and "Your ID is C001" in screen.lines[0]
     assert controller.state == kc.IDLE
@@ -165,11 +158,39 @@ def test_admin_picks_the_team_on_an_imported_cards_first_scan(services, db, lega
     controller.handle_card("04A1B2C3D4E5F6")                 # Ben, 7-byte card, signed in
     assert controller.handle_key("*").title == "Tap your card"           # cancel
     assert users.get_by_code("U002")["username"] == "Ben"
+
+    # Mentors need the admin PIN; * goes back to the team list.
     controller.handle_card("04A1B2C3D4E5F6")
+    screen = controller.handle_key("5")
+    assert controller.state == kc.ADMIN_PIN and screen.title == "Ben as a mentor"
+    assert controller.handle_key("*").title == "Welcome, Ben!"
+    assert controller.state == kc.PICK_TEAM
+    controller.handle_key("5")
+    for key in "1111#":                                      # not the admin: no team, no sign-in
+        screen = controller.handle_key(key)
+    assert screen.title == "Wrong PIN" and controller.state == kc.IDLE
+    assert users.get_by_code("U002")["username"] == "Ben"
+    controller.handle_card("04A1B2C3D4E5F6")
+    controller.handle_key("5")
     for key in "2468#":
-        controller.handle_key(key)
-    assert controller.handle_key("5").title == "Goodbye, Ben!"           # mentors
+        screen = controller.handle_key(key)
+    assert screen.title == "Goodbye, Ben!"
     assert users.get_by_code("001")["username"] == "Ben"
+
+
+def test_mentor_choice_on_an_old_card_without_an_admin_pin(services, db, legacy, clock):
+    from nfc_login.hardware.simulated import SimulatedReader
+    from nfc_login.kiosk import controller as kc
+
+    attendance, _seasons, users = services
+    clock.now = datetime(2026, 10, 1, 18, 0)
+    LegacyImporter(db, clock=clock).run(legacy)
+    controller = kc.KioskController(attendance, users, reader=SimulatedReader())
+    controller.handle_card("DEADBEEF")
+    screen = controller.handle_key("5")
+    assert controller.state == kc.PICK_TEAM and "no admin PIN" in screen.lines[0]
+    assert controller.handle_key("1").title == "Welcome, Ana!"   # a team still works
+    assert users.get_by_code("A001")["username"] == "Ana"
 
 
 def test_u_is_reserved(tmp_path):
