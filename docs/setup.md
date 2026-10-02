@@ -10,14 +10,22 @@ The Pi has no battery-backed clock. Sign-in times come from the system
 clock, so make sure the Pi has network access for time sync (or add an RTC).
 Check with `timedatectl`.
 
-## 2. Automatic install
+## 2. One-command setup
 
 ```bash
-git clone https://github.com/LunarcatOwO/rpi-login-system.git
-cd rpi-login-system
-bash scripts/install.sh
+git clone https://github.com/LunarcatOwO/rpi-login-system.git ~/rpi-login-system && bash ~/rpi-login-system/scripts/setup-pi.sh
 ```
 
+(The repo is private: when git asks for a password, use a GitHub personal
+access token.) `setup-pi.sh` runs `scripts/install.sh` (below), asks for the
+admin PIN, downloads the Electron runtime and makes the desktop app
+(`electron/`) open fullscreen when the Pi boots, sets the Pi to log in to the
+desktop by itself, turns off screen blanking and offers to reboot. Running it
+again is safe.
+
+### What install.sh does
+
+To set up only the Python kiosk (no desktop app), run `bash scripts/install.sh`.
 The script:
 
 1. installs `python3-venv`, `python3-tk` and `mariadb-server`,
