@@ -47,6 +47,7 @@ def status_payload(services: Services, sections: list[dict], leaderboard_size: i
         "code": r["code"],
         "name": r["username"],
         "section": r["section"],
+        "team": services.users.team_name(r["section"]),
         "since": r["sign_in_at"].isoformat(),
         "seconds": max(0, int((now - r["sign_in_at"]).total_seconds())),
     } for r in att.currently_signed_in()]
@@ -55,6 +56,7 @@ def status_payload(services: Services, sections: list[dict], leaderboard_size: i
         "code": e.code,
         "name": e.username,
         "section": e.section,
+        "team": services.users.team_name(e.section),
         "total_seconds": e.total_seconds,
         "total": timefmt.format_duration(e.total_seconds),
     } for e in att.leaderboard(leaderboard_size)]
@@ -194,6 +196,7 @@ def make_handler(services: Services, sections: list[dict], refresh_seconds: floa
                 "/admin/logout": self._logout,
                 "/admin/adjust": self._adjust,
                 "/admin/users": self._add_user,
+                "/admin/team": self._change_team,
                 "/admin/signout-all": self._sign_out_all,
             }
             action = actions.get(path)
@@ -251,6 +254,17 @@ def make_handler(services: Services, sections: list[dict], refresh_seconds: floa
                 return
             self._redirect_flash(f"Created {user['username']} with ID {user['code']}. "
                                  "Enroll their card at the kiosk: * → admin PIN → 1.")
+
+        def _change_team(self, form):
+            try:
+                user = services.users.get_by_code(form.get("code", ""))
+                user = services.users.move(user["id"], form.get("section", ""))
+            except UserError as exc:
+                self._redirect_flash(str(exc), error=True)
+                return
+            self._redirect_flash(f"{user['username']} is now in "
+                                 f"{services.users.team_name(user['section'])} "
+                                 f"with ID {user['code']}.")
 
         def _sign_out_all(self, form):
             count = services.attendance.sign_out_everyone()
@@ -327,8 +341,9 @@ def admin_page(services: Services, section_names: dict[str, str], message: str,
 
     user_options = "".join(f"<option value='{e(u['code'])}'>{e(u['code'])} — {e(u['username'])}"
                            f"</option>" for u in users)
-    section_options = "".join(f"<option value='{e(k)}'>{e(k)} — {e(v)}</option>"
-                              for k, v in section_names.items())
+    section_options = "".join(
+        f"<option value='{e(k)}'>{e(v)} ({e(ids.format_code(k, 1))}, "
+        f"{e(ids.format_code(k, 2))}...)</option>" for k, v in section_names.items())
     user_rows = "".join(
         f"<tr><td>{e(u['code'])}</td><td>{e(u['username'])}</td>"
         f"<td>{e(section_names.get(u['section'], ids.UNSORTED_NAME))}</td>"
@@ -369,13 +384,25 @@ def admin_page(services: Services, section_names: dict[str, str], message: str,
   <form method="post" action="/admin/users" class="row">
     <div style="flex:1;min-width:180px"><label>Name</label>
          <input name="username" required maxlength="64" style="width:100%"></div>
-    <div><label>Section</label><select name="section">{section_options}</select></div>
+    <div><label>Team</label><select name="section">{section_options}</select></div>
     <div><label>Keypad PIN (optional)</label><input name="pin" inputmode="numeric"
          pattern="[0-9]{{4,8}}" style="width:8em"></div>
     <div><button>Create</button></div>
   </form>
-  <p class="muted">The new user gets the next free ID in their section (e.g. B04).
+  <p class="muted">The new user gets the next free ID in their team (e.g. B004, or 004
+  for a mentor).
   Cards are enrolled at the kiosk: press <b>*</b>, enter the admin PIN, then <b>1</b>.</p>
+</section>
+<section class="card">
+  <h2>Change someone's team</h2>
+  <form method="post" action="/admin/team" class="row">
+    <div><label>User</label><select name="code" required>{user_options}</select></div>
+    <div><label>New team</label><select name="section">{section_options}</select></div>
+    <div><button>Move</button></div>
+  </form>
+  <p class="muted">They get the next free ID in the new team, and their old ID stops
+  working. People imported from the old system start with a U ID until they're moved
+  (or an admin picks their team at the kiosk when they first tap their card).</p>
 </section>
 <section class="card">
   <h2>Recent adjustments</h2>
@@ -384,7 +411,7 @@ def admin_page(services: Services, section_names: dict[str, str], message: str,
 </section>
 <section class="card">
   <h2>Users</h2>
-  <table><tr><th>ID</th><th>Name</th><th>Section</th><th>Season time</th><th>Rank</th></tr>
+  <table><tr><th>ID</th><th>Name</th><th>Team</th><th>Season time</th><th>Rank</th></tr>
   {user_rows or "<tr><td colspan=5 class='muted'>No users yet</td></tr>"}</table>
 </section>
 <section class="card">

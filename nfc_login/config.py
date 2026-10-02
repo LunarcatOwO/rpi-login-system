@@ -26,11 +26,18 @@ DEFAULTS: dict = {
     "hardware": {
         # "pi" uses the real PN532 + keypad, "simulated" runs on any computer.
         "mode": "pi",
+        # PN532 wiring. SPI is the quickest and most reliable on a Pi 4 (see
+        # docs/hardware.md); "i2c" and "uart" also work if it's wired that way.
         "nfc": {
+            "interface": "spi",
+            "spi_cs_pin": 5,           # BCM pin for the PN532's SS (physical pin 29)
+            "spi_baudrate": 1_000_000, # Hz; the PN532 allows up to 5 MHz
+            "uart_port": "/dev/serial0",
+            "tries": 4,                # attempts per block if a read or write fails
             "write_tags": True,
             "poll_timeout_seconds": 0.5,
         },
-        # Buzzer on GPIO 12 (physical pin 32), clear of the keypad and I2C pins.
+        # Buzzer on GPIO 12 (physical pin 32), clear of the keypad and PN532 pins.
         "buzzer": {
             "enabled": True,
             "pin": 12,
@@ -42,9 +49,10 @@ DEFAULTS: dict = {
         },
         "keypad": {
             "enabled": True,
-            # BCM pin numbers, matching the Da Vinci Kit "2.1.5 Keypad" lesson.
+            # BCM pin numbers: the Da Vinci Kit "2.1.5 Keypad" lesson's, except
+            # its GPIO 10 (SPI MOSI, needed by the PN532) moves to GPIO 6.
             "rows": [18, 23, 24, 25],
-            "cols": [10, 22, 27, 17],
+            "cols": [6, 22, 27, 17],
             "keys": [
                 "1", "2", "3", "A",
                 "4", "5", "6", "B",
@@ -75,13 +83,15 @@ DEFAULTS: dict = {
     "seasons": {
         "archive_dir": "archive",
     },
-    # Sections of people, one per keypad letter key. The letter starts each
-    # user ID (A07, D12); "key" is the keypad key that types it.
+    # Teams, one per keypad letter key. The letter starts each user ID (A007,
+    # D012); "key" is the keypad key that types it and "short" fits the
+    # kiosk's side panel. Letter M is the mentors: no key, number-only IDs (007).
     "sections": [
-        {"letter": "A", "name": "Section A", "key": "A"},
-        {"letter": "B", "name": "Section B", "key": "B"},
-        {"letter": "C", "name": "Section C", "key": "C"},
-        {"letter": "D", "name": "Section D", "key": "D"},
+        {"letter": "A", "name": "Robot", "short": "Robot", "key": "A"},
+        {"letter": "B", "name": "Impact", "short": "Impact", "key": "B"},
+        {"letter": "C", "name": "Sustainability", "short": "Sustain", "key": "C"},
+        {"letter": "D", "name": "Strategy", "short": "Strategy", "key": "D"},
+        {"letter": "M", "name": "Mentors", "short": "Mentor", "key": ""},
     ],
     # Live "who's here" page and admin page, served by the kiosk on the LAN.
     "web": {
@@ -166,18 +176,26 @@ def load_config(path: str | Path | None = None) -> Config:
 
 
 def _check_sections(sections: list[dict]) -> None:
-    letters = [s["letter"].upper() for s in sections]
-    keys = [s["key"].upper() for s in sections]
+    from nfc_login.services.ids import MENTORS, UNSORTED
+
+    for section in sections:
+        section["letter"] = section["letter"].upper()
+        section["key"] = section.get("key", "").upper()
+        section.setdefault("short", section["name"][:8])
+        letter, key = section["letter"], section["key"]
+        if len(letter) != 1 or not letter.isalpha():
+            raise ValueError(f"section letter must be one letter: {letter!r}")
+        if letter == UNSORTED:
+            raise ValueError(f"section letter {UNSORTED} is reserved for imported users "
+                             "who haven't been given a team yet")
+        if letter == MENTORS:
+            if key:
+                raise ValueError(f"section {MENTORS} is the mentors, whose IDs are only "
+                                 "numbers, so it can't have a keypad key")
+        elif len(key) != 1 or key == "*" or key.isdigit():
+            raise ValueError(f"section {letter} needs one keypad key that isn't * or a digit "
+                             "(those are used for typing)")
+    letters = [s["letter"] for s in sections]
+    keys = [s["key"] for s in sections if s["key"]]
     if len(set(letters)) != len(letters) or len(set(keys)) != len(keys):
         raise ValueError("each section needs its own letter and its own keypad key")
-    from nfc_login.services.ids import UNSORTED
-    if UNSORTED in letters:
-        raise ValueError(f"section letter {UNSORTED} is reserved for imported users "
-                         "who haven't picked a group yet")
-    for section in sections:
-        if len(section["letter"]) != 1 or not section["letter"].isalpha():
-            raise ValueError(f"section letter must be one letter: {section['letter']!r}")
-        if section["key"] == "*" or section["key"].isdigit():
-            raise ValueError("a section key can't be * or a digit (they're used for typing)")
-        section["letter"] = section["letter"].upper()
-        section["key"] = section["key"].upper()

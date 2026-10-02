@@ -39,8 +39,8 @@ def test_scan_writes_stats_to_card(services, clock):
     screen = tap(controller, reader, "04AA")
     assert screen.title == "Goodbye, taylor!"
     link, text = card_text(reader, "04AA")
-    assert link == "https://example.github.io/site/?id=C01"
-    assert "ID: C01" in text and "Time: 1h 5m" in text and "Rank: #1 of 1" in text
+    assert link == "https://example.github.io/site/?id=C001"
+    assert "ID: C001" in text and "Time: 1h 5m" in text and "Rank: #1 of 1" in text
 
 
 def test_card_type_without_ndef_still_signs_in(services):
@@ -61,28 +61,28 @@ def test_enrolling_needs_admin_pin(services):
     users.set_admin_pin("2468")
     user = users.add("taylor", "B")
     # Without the PIN, letters only start an ID lookup; there's no way to enroll.
-    press(controller, "B01")
+    press(controller, "B001")
     assert controller.state == kc.USER_MENU
     press(controller, "*")
     assert press(controller, "*").title == "Admin PIN"
     assert press(controller, "2468#").title == "Admin menu"
     press(controller, "1")
-    screen = press(controller, "B01")                    # auto-submits after two digits
+    screen = press(controller, "B001")                   # auto-submits after three digits
     assert controller.state == kc.ENROLL_SCAN and "taylor" in screen.lines[0]
     screen = tap(controller, reader, "04BEEF")
     assert screen.title == "Card enrolled" and controller.state == kc.IDLE
-    assert card_text(reader, "04BEEF")[0].endswith("?id=B01")
+    assert card_text(reader, "04BEEF")[0].endswith("?id=B001")
     assert tap(controller, reader, "04BEEF").title == "Welcome, taylor!"
-    assert user["code"] == "B01"
+    assert user["code"] == "B001"
 
 
 def test_section_d_and_enter_key(services):
     controller, _reader, users = make(services)
     users.add("dee", "D")
-    assert press(controller, "D01").title == "dee  (D01)"
-    # # is Enter mid-ID, so "D1#" is D01 too.
+    assert press(controller, "D001").title == "dee  (D001)"
+    # # is Enter mid-ID, so "D1#" is D001 too.
     press(controller, "*")
-    assert press(controller, "D1#").title == "dee  (D01)"
+    assert press(controller, "D1#").title == "dee  (D001)"
 
 
 def test_wrong_admin_pin_locks_after_five_tries(services):
@@ -97,25 +97,25 @@ def test_wrong_admin_pin_locks_after_five_tries(services):
 def test_keypad_sign_in_with_pin(services, clock):
     controller, _reader, users = make(services)
     users.add("taylor", "A", pin="1357")
-    press(controller, "A01")
+    press(controller, "A001")
     assert controller.state == kc.USER_MENU
     assert press(controller, "11357#").title == "Welcome, taylor!"
     clock.advance(minutes=45)
-    assert press(controller, "A0111357#").title == "Goodbye, taylor!"
-    assert press(controller, "A0110000#").title == "Wrong PIN"
+    assert press(controller, "A00111357#").title == "Goodbye, taylor!"
+    assert press(controller, "A00110000#").title == "Wrong PIN"
 
 
 def test_user_without_pin_is_told_to_use_card(services):
     controller, _reader, users = make(services)
     users.add("taylor", "A")
-    screen = press(controller, "A011")
+    screen = press(controller, "A0011")
     assert screen.tone == "error" and "Use your card" in screen.lines[0]
 
 
 def test_unknown_id_keeps_typing(services):
     controller, _reader, _users = make(services)
-    screen = press(controller, "D42")
-    assert screen.tone == "error" and "D42" in screen.lines[0]
+    screen = press(controller, "D042")
+    assert screen.tone == "error" and "D042" in screen.lines[0]
     assert controller.state == kc.USER_ID
 
 
@@ -123,13 +123,13 @@ def test_admin_adjust_hours_on_keypad(services):
     controller, _reader, users = make(services)
     users.set_admin_pin("2468")
     users.add("taylor", "A")
-    press(controller, "*2468#2A01")
+    press(controller, "*2468#2A001")
     assert controller.state == kc.ADJUST_AMOUNT
     screen = press(controller, "130")
     assert screen.entry == "130  =  1h 30m"
     screen = press(controller, "A")
     assert screen.title == "Added 1h 30m" and "New season total: 1h 30m" in screen.lines
-    screen = press(controller, "*2468#2A01")
+    screen = press(controller, "*2468#2A001")
     screen = press(controller, "200B")
     assert screen.tone == "error" and "only has 1h 30m" in screen.lines[0]
     screen = press(controller, "45B")
@@ -142,7 +142,7 @@ def test_admin_who_is_here(services):
     users.enroll_tag("CAFE", users.add("taylor", "D")["id"])
     tap(controller, reader, "CAFE")
     screen = press(controller, "*2468#3")
-    assert screen.title == "Here now: 1" and screen.lines[0].startswith("D01  taylor")
+    assert screen.title == "Here now: 1" and screen.lines[0].startswith("D001  taylor")
     assert press(controller, "*").title == "Admin menu"
     press(controller, "*")
     assert controller.state == kc.IDLE
@@ -176,3 +176,33 @@ def test_buzzer_patterns_for_kiosk_events(services, clock):
     assert tap(controller, reader, "0BAD").buzz == "error"          # unknown card
     controller.handle_key("*")
     assert press(controller, "2468#").buzz == "admin"
+
+
+def test_mentors_type_only_a_number(services, clock):
+    controller, reader, users = make(services)
+    mentor = users.add("morgan", "M", pin="1357")
+    assert mentor["code"] == "001"
+    assert press(controller, "001").title == "morgan  (001)"   # a digit starts a mentor ID
+    assert "Team: Mentors" in controller._user_menu_screen().lines
+    assert press(controller, "11357#").title == "Welcome, morgan!"
+    press(controller, "*")
+    assert press(controller, "1#").title == "morgan  (001)"    # # enters early
+
+
+def test_scan_shows_the_team_name(services):
+    controller, reader, users = make(services)
+    users.enroll_tag("04AA", users.add("taylor", "B")["id"])
+    assert "ID B001  ·  Impact" in tap(controller, reader, "04AA").lines
+
+
+def test_admin_changes_someones_team(services):
+    controller, _reader, users = make(services)
+    users.set_admin_pin("2468")
+    users.add("taylor", "A")
+    screen = press(controller, "*2468#6A001")
+    assert controller.state == kc.PICK_TEAM and "Currently: Robot (A001)" in screen.lines
+    screen = press(controller, "D")                           # letter keys work too
+    assert screen.title == "Team changed" and "Their ID is now D001." in screen.lines
+    assert users.get_by_code("D001")["username"] == "taylor"
+    press(controller, "*2468#6D001")
+    assert press(controller, "*").title == "Change team: user ID"   # back a step

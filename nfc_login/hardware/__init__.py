@@ -2,6 +2,20 @@
 
 from __future__ import annotations
 
+# BCM pins each PN532 wiring uses. SPI0 includes CE0 (GPIO 8): the kernel's SPI
+# driver holds it even though the PN532's chip select is on its own pin.
+SPI_PINS = {8, 9, 10, 11}
+I2C_PINS = {2, 3}
+UART_PINS = {14, 15}
+
+
+def reader_pins(config) -> set[int]:
+    nfc = config.hardware["nfc"]
+    interface = nfc.get("interface", "spi")
+    if interface == "spi":
+        return SPI_PINS | {nfc.get("spi_cs_pin", 5)}
+    return I2C_PINS if interface == "i2c" else UART_PINS
+
 
 def create_reader(config):
     """The PN532 reader, or a simulated one when ``hardware.mode = "simulated"``."""
@@ -9,7 +23,9 @@ def create_reader(config):
         from nfc_login.hardware.simulated import SimulatedReader
         return SimulatedReader()
     from nfc_login.hardware.nfc_reader import PN532Reader
-    return PN532Reader(poll_timeout=config.hardware["nfc"]["poll_timeout_seconds"])
+    nfc = config.hardware["nfc"]
+    return PN532Reader(poll_timeout=nfc["poll_timeout_seconds"], nfc=nfc,
+                       tries=nfc.get("tries", 4))
 
 
 def create_keypad(config):
@@ -17,11 +33,13 @@ def create_keypad(config):
     k = config.hardware["keypad"]
     if config.hardware["mode"] == "simulated" or not k["enabled"]:
         return None
+    clash = set(k["rows"] + k["cols"]) & reader_pins(config)
+    if clash:
+        raise ValueError(f"keypad pin(s) {sorted(clash)} are wired to the PN532 "
+                         f"({config.hardware['nfc'].get('interface', 'spi')}); "
+                         "move them in [hardware.keypad]")
     from nfc_login.hardware.keypad import MatrixKeypad
     return MatrixKeypad(k["rows"], k["cols"], k["keys"])
-
-
-I2C_PINS = {2, 3}   # the PN532
 
 
 def create_buzzer(config):
@@ -30,7 +48,7 @@ def create_buzzer(config):
     if config.hardware["mode"] == "simulated" or not b["enabled"]:
         return None
     k = config.hardware["keypad"]
-    taken = I2C_PINS | (set(k["rows"] + k["cols"]) if k["enabled"] else set())
+    taken = reader_pins(config) | (set(k["rows"] + k["cols"]) if k["enabled"] else set())
     if b["pin"] in taken:
         raise ValueError(f"buzzer pin {b['pin']} is already used by the keypad or the "
                          "PN532; pick another in [hardware.buzzer]")

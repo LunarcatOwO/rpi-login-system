@@ -18,8 +18,10 @@ stats back onto their card along with a link a phone can open.
 - **Card contents refresh on every scan:** user ID, username, season time
   (hours + minutes), leaderboard rank, last sign-in, last sign-out, and a link
   to the (placeholder) GitHub Pages site.
-- **Four sections, one per keypad letter.** User IDs are the section letter
-  plus a number (A07, B12, D01), and the letter keys start typing an ID.
+- **Four teams and the mentors.** A Robot, B Impact, C Sustainability and
+  D Strategy: IDs are the team letter plus a number (A007, B012), up to 999
+  per team, and the letter keys start typing one. Mentors have number-only
+  IDs (007), typed with just the digits. Only an admin picks someone's team.
 - **Who's here, live:** a tap-to-switch panel on the kiosk and a web page at
   `http://<pi>:8080/` that phones on the network can open.
 - **Leaderboard** on screen and on the web page, recalculated after every scan.
@@ -43,7 +45,7 @@ stats back onto their card along with a link a phone can open.
 |---|---|
 | Raspberry Pi 4 Model B | Raspberry Pi OS Bookworm (desktop) |
 | 5 inch 800x480 touchscreen | HDMI/DSI, USB touch |
-| Elechouse PN532 NFC Module V3 | I2C mode |
+| Elechouse PN532 NFC Module V3 | SPI mode |
 | 4x4 matrix keypad | From the SunFounder Da Vinci Kit |
 | NTAG215 cards/stickers | Recommended; NTAG213/216 and MIFARE Classic 1K also work |
 | 3D printed shell | `enclosure/` in the project library (body, top, tray) |
@@ -55,9 +57,9 @@ Wiring is in [docs/hardware.md](docs/hardware.md).
 ```bash
 git clone https://github.com/LunarcatOwO/rpi-login-system.git
 cd rpi-login-system
-bash scripts/install.sh                         # packages, MariaDB, I2C, service
+bash scripts/install.sh                         # packages, MariaDB, SPI, service
 .venv/bin/python -m nfc_login.admin set-admin-pin
-.venv/bin/python -m nfc_login.admin user add "Taylor" --section A    # -> A01
+.venv/bin/python -m nfc_login.admin user add "Taylor" --section A    # -> A001
 sudo reboot
 ```
 
@@ -72,7 +74,7 @@ pip install -r requirements.txt
 cp config.example.toml config.toml   # set the database login, mode = "simulated"
 python3 -m nfc_login.admin init-db
 python3 -m nfc_login.admin user add "Test User" --section A
-python3 -m nfc_login.admin tag enroll A01 --uid 04A1B2C3D4E5F6
+python3 -m nfc_login.admin tag enroll A001 --uid 04A1B2C3D4E5F6
 python3 -m nfc_login --simulate --windowed
 ```
 
@@ -82,7 +84,7 @@ python3 -m nfc_login --simulate --windowed
 |---|---|
 | [docs/hardware.md](docs/hardware.md) | Parts, wiring, PN532 switch settings, the enclosure |
 | [docs/setup.md](docs/setup.md) | Installing on the Pi step by step, autostart, backups |
-| [docs/usage.md](docs/usage.md) | Scanning, keypad, sections and IDs, live page, web admin, CLI reference |
+| [docs/usage.md](docs/usage.md) | Scanning, keypad, teams and IDs, live page, web admin, CLI reference |
 | [docs/nfc-tags.md](docs/nfc-tags.md) | What's written on each card and why it's never trusted |
 | [docs/seasons.md](docs/seasons.md) | How season resets and archives work |
 | [docs/legacy.md](docs/legacy.md) | Importing from the old attendance system, old MIFARE Classic cards |

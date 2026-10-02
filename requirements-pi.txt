@@ -3,3 +3,4 @@
 adafruit-blinka>=8.0
 adafruit-circuitpython-pn532>=2.4
 RPi.GPIO>=0.7.1
+pyserial>=3.5           # only for interface = "uart"

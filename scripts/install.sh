@@ -16,10 +16,10 @@ DB_USER="nfc_login"
 
 echo "==> Installing system packages"
 sudo apt-get update
-sudo apt-get install -y python3-venv python3-tk python3-dev mariadb-server i2c-tools
+sudo apt-get install -y python3-venv python3-tk python3-dev mariadb-server
 
-echo "==> Enabling I2C (for the PN532 reader)"
-sudo raspi-config nonint do_i2c 0
+echo "==> Enabling SPI (for the PN532 reader)"
+sudo raspi-config nonint do_spi 0
 
 echo "==> Python virtual environment"
 python3 -m venv --system-site-packages "$REPO_DIR/.venv"
@@ -61,4 +61,4 @@ echo
 echo "Done. Next steps:"
 echo "  1. Set the admin PIN:   .venv/bin/python -m nfc_login.admin set-admin-pin"
 echo "  2. Add users:           .venv/bin/python -m nfc_login.admin user add \"Name\" --section A"
-echo "  3. Reboot (I2C needs it the first time), then the kiosk starts on its own."
+echo "  3. Reboot (SPI needs it the first time), then the kiosk starts on its own."

@@ -18,7 +18,7 @@ settings                  key/value (admin PIN hash)
 | Column | |
 |---|---|
 | `id` | Internal key, never shown |
-| `section`, `number` | The user ID people see is these two together: `A` + `7` → **A07**. Unique as a pair. |
+| `section`, `number` | The user ID people see is these two together: `A` + `7` → **A007**. Mentors are section `M` and their ID is just the number: **007**. Unique as a pair. |
 | `username` | Unique |
 | `pin_hash` | Optional keypad PIN, PBKDF2-SHA256 |
 | `is_active` | 0 hides the user and disables their cards |
@@ -96,7 +96,7 @@ JOIN seasons se ON se.id = s.season_id AND se.is_active = 1
 GROUP BY u.id ORDER BY hours DESC;
 
 -- Every adjustment this season
-SELECT a.created_at, CONCAT(u.section, LPAD(u.number, 2, '0')) AS id, u.username,
+SELECT a.created_at, CONCAT(IF(u.section = 'M', '', u.section), LPAD(u.number, 3, '0')) AS id, u.username,
        a.seconds / 60 AS minutes, a.reason, a.created_via
 FROM adjustments a JOIN users u ON u.id = a.user_id
 JOIN seasons se ON se.id = a.season_id AND se.is_active = 1

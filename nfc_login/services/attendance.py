@@ -33,7 +33,7 @@ class WrongPinError(AttendanceError):
 @dataclass
 class UserStats:
     user_id: int                   # internal key
-    code: str                      # the user ID people see, e.g. A07
+    code: str                      # the user ID people see, e.g. A007 (or 007 for a mentor)
     section: str
     username: str
     season_name: str

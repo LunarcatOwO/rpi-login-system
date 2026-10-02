@@ -4,18 +4,21 @@ The controller knows nothing about Tkinter. Each handler returns a ``Screen``
 describing what the display should show, which keeps this logic testable
 without a display or real hardware.
 
-Keypad (Da Vinci Kit 4x4), with the default four sections:
+Keypad (Da Vinci Kit 4x4), with the default teams:
 
-    A B C D     start typing a user ID in that section, e.g. B 0 7 for user
-                B07. After the ID: 1 = sign in/out with PIN.
-    0-9         digits
+    A B C D     start typing a team member's ID, e.g. B 0 0 7 for B007
+                (A Robot, B Impact, C Sustainability, D Strategy).
+    0-9         digits. From the idle screen a digit starts a mentor's ID,
+                which is only a number (007). After any ID: 1 = sign in/out
+                with PIN.
     *           backspace; on an empty entry, back / cancel.
                 From the idle screen, * opens the admin menu (asks for the PIN).
     #           Enter, once you've started typing.
 
 A card imported from the legacy system belongs to a user with a U ID (no
-group yet). Its first scan asks them to press their group's letter, which
-gives them their real ID, and then signs them in.
+team yet). Its first scan asks for the admin PIN, the admin picks the team,
+which gives the user their real ID, and then they're signed in. Admins can
+also change anyone's team from the admin menu.
 """
 
 from __future__ import annotations
@@ -50,9 +53,10 @@ ENROLL_ID = "enroll_id"
 ENROLL_SCAN = "enroll_scan"
 ADJUST_ID = "adjust_id"
 ADJUST_AMOUNT = "adjust_amount"
-PICK_GROUP = "pick_group"     # legacy card's first scan: choose a section
+MOVE_ID = "move_id"           # admin: whose team to change
+PICK_TEAM = "pick_team"       # admin chooses a team (legacy card, or MOVE_ID)
 
-ID_STATES = (USER_ID, ENROLL_ID, ADJUST_ID)
+ID_STATES = (USER_ID, ENROLL_ID, ADJUST_ID, MOVE_ID)
 PIN_STATES = (USER_PIN, ADMIN_PIN)
 
 MAX_PIN = 8
@@ -66,6 +70,7 @@ ADMIN_MENU_LINES = [
     "3  Who is here",
     "4  Sign everyone out",
     "5  System info",
+    "6  Change someone's team",
     "*  Exit",
 ]
 
@@ -119,7 +124,11 @@ class KioskController:
         self.keypad_timeout = keypad_timeout
         self.monotonic = monotonic
         # keypad key -> section letter, normally {"A": "A", "B": "B", ...}
-        self.section_keys = {s["key"]: s["letter"] for s in users.sections}
+        self.section_keys = {s["key"]: s["letter"] for s in users.sections if s["key"]}
+        self.mentors = ids.MENTORS in users.section_names
+        # PICK_TEAM choices: digit -> section letter, in config order
+        self.team_choices = {str(n): s["letter"]
+                             for n, s in enumerate(users.sections[:9], start=1)}
 
         self._lock = threading.RLock()
         self.state = IDLE
@@ -132,15 +141,13 @@ class KioskController:
     # ------------------------------------------------------------ screens
 
     def idle_screen(self) -> Screen:
-        letters = " ".join(f"{k}={v}" if k != v else k for k, v in self.section_keys.items())
-        return Screen(
-            "Tap your card",
-            ["Hold your card on the reader to sign in or out.",
-             "",
-             f"No card? Type your ID on the keypad ({letters}).",
-             "* = admin"],
-            tone="info",
-        )
+        teams = [f"{k}  {self.users.team_name(v)}" for k, v in self.section_keys.items()]
+        rows = ["      ".join(teams[i:i + 2]) for i in range(0, len(teams), 2)]
+        lines = ["Hold your card on the reader to sign in or out.", "",
+                 "No card? Type your ID on the keypad:", *rows]
+        if self.mentors:
+            lines.append("Mentors: just type your number.")
+        return Screen("Tap your card", lines + ["* = admin"], tone="info")
 
     def _result(self, title, lines, tone, refresh=False) -> Screen:
         return Screen(title, lines, tone, hold_seconds=self.result_seconds,
@@ -164,11 +171,7 @@ class KioskController:
             except AttendanceError:
                 user = None  # scan_tag below reports why
             if user and user["section"] == ids.UNSORTED:
-                self.state = PICK_GROUP
-                self.context = {"uid": uid, "user": user}
-                screen = self._redraw()
-                screen.sound = "attention"
-                return screen
+                return self._legacy_card(uid, user)
             try:
                 result = self.attendance.scan_tag(uid)
             except AttendanceError as exc:
@@ -179,9 +182,23 @@ class KioskController:
                 screen.lines.extend(self._write_card(result.stats))
             return screen
 
+    def _legacy_card(self, uid: str, user: dict) -> Screen:
+        """An imported card with no team yet: an admin has to choose one first."""
+        if not self.users.admin_pin_set():
+            return self._result(f"Hi, {user['username']}", [
+                "Your card is from the old system and needs a team, but no admin",
+                "PIN is set. Ask an admin to run: python3 -m nfc_login.admin user move",
+            ], "error")
+        self.state = ADMIN_PIN
+        self.context = {"uid": uid, "user": user, "legacy": True}
+        screen = self._redraw()
+        screen.sound = "attention"
+        return screen
+
     def _scan_screen(self, action, stats: UserStats, session_seconds, notes) -> Screen:
         summary = [
-            f"ID {stats.code}  ·  Season {stats.season_name}: {stats.total_text}",
+            f"ID {stats.code}  ·  {self.users.team_name(stats.section)}",
+            f"Season {stats.season_name}: {stats.total_text}",
             f"Leaderboard rank: {_rank_text(stats)}",
         ]
         if action == SIGNED_IN:
@@ -237,7 +254,7 @@ class KioskController:
                 USER_MENU: self._user_menu_key,
                 ADMIN_MENU: self._admin_choice,
                 ADJUST_AMOUNT: self._amount_key,
-                PICK_GROUP: self._pick_group_key,
+                PICK_TEAM: self._pick_team_key,
             }.get(self.state)
             if handler:
                 return handler(key)
@@ -263,14 +280,17 @@ class KioskController:
                                     "warning")
             self.state = ADMIN_PIN
             return self._redraw()
-        if self.buffer and not (self.state in ID_STATES and len(self.buffer) == 1):
+        if self.buffer and not (self.state in ID_STATES and self.buffer.isalpha()):
             self.buffer = self.buffer[:-1]
             return self._redraw()
-        # Empty entry (or only the section letter): go back a step.
+        # Empty entry (or only the team letter): go back a step.
         self.buffer = ""
         if self.state == ADMIN_MENU and self.context.pop("viewing", False):
             return self._redraw()
-        if self.state in (ENROLL_ID, ADJUST_ID, ENROLL_SCAN):
+        if self.state == PICK_TEAM and "uid" not in self.context:
+            self.state = MOVE_ID
+            return self._redraw()
+        if self.state in (ENROLL_ID, ADJUST_ID, ENROLL_SCAN, MOVE_ID):
             self.state, self.context = ADMIN_MENU, {}
             return self._redraw()
         if self.state == ADJUST_AMOUNT:
@@ -283,26 +303,26 @@ class KioskController:
         return self.idle_screen()
 
     def _idle_key(self, key: str) -> Screen:
-        if key in self.section_keys:
+        if key in self.section_keys or (key.isdigit() and self.mentors):
             self.state = USER_ID
-            self.buffer = self.section_keys[key]
-            return self._redraw()
+            return self._id_key(key)
         return self.idle_screen()
 
-    # -- typing an ID (section letter + digits)
+    # -- typing an ID (team letter + digits, or a mentor's digits)
 
     def _id_key(self, key: str) -> Screen | None:
         if not self.buffer:
             if key in self.section_keys:
                 self.buffer = self.section_keys[key]
-                return self._redraw()
-            return self._redraw()  # must start with a section letter
+            elif key.isdigit() and self.mentors:
+                self.buffer = key
+            return self._redraw()  # must start with a team letter (or a mentor digit)
         if key.isdigit():
             self.buffer += key
-            if len(self.buffer) == 1 + ids.DIGITS:
+            if len(self.buffer) == ids.code_length(self.buffer):
                 return self._submit_id()
             return self._redraw()
-        if key == "#" and len(self.buffer) > 1:
+        if key == "#" and any(c.isdigit() for c in self.buffer):
             return self._submit_id()
         return self._redraw()
 
@@ -321,6 +341,9 @@ class KioskController:
         if self.state == ENROLL_ID:
             self.state = ENROLL_SCAN
             return self._redraw()
+        if self.state == MOVE_ID:
+            self.state = PICK_TEAM
+            return self._redraw()
         self.state = ADJUST_AMOUNT
         return self._redraw()
 
@@ -334,6 +357,7 @@ class KioskController:
             self._reset()
             return self._result("Not found", [str(exc)], "error")
         return Screen(f"{stats.username}  ({stats.code})", [
+            f"Team: {self.users.team_name(stats.section)}",
             f"Season {stats.season_name}: {stats.total_text}",
             f"Leaderboard rank: {_rank_text(stats)}",
             f"Currently: {'signed in' if stats.signed_in else 'signed out'}",
@@ -367,6 +391,9 @@ class KioskController:
     def _check_admin(self, pin: str) -> Screen:
         if self.users.check_admin_pin(pin):
             self._pin_failures = 0
+            if self.context.get("legacy"):
+                self.state = PICK_TEAM
+                return self._redraw()
             self.state = ADMIN_MENU
             screen = self._redraw()
             screen.sound = "admin"
@@ -423,6 +450,9 @@ class KioskController:
             self._reset()
             return self._result("Everyone signed out", [f"Closed {count} session(s)."],
                                 "success", refresh=True)
+        if key == "6":
+            self.state = MOVE_ID
+            return self._redraw()
         if key == "5":
             reader = self.reader.firmware_version() if self.reader else "no reader"
             self.context["viewing"] = True
@@ -461,34 +491,52 @@ class KioskController:
 
     # ------------------------------------------------------------ drawing
 
-    def _pick_group_key(self, key: str) -> Screen:
-        if key not in self.section_keys:
+    def _pick_team_key(self, key: str) -> Screen:
+        section = self.team_choices.get(key) or self.section_keys.get(key)
+        if not section:
             return self._redraw()
-        uid, user = self.context["uid"], self.context["user"]
+        uid, user = self.context.get("uid"), self.context["user"]
         self._reset()
+        team = self.users.team_name(section)
         try:
-            user = self.users.move(user["id"], self.section_keys[key])
+            user = self.users.move(user["id"], section)
+            if uid is None:
+                return self._result("Team changed", [
+                    f"{user['username']} is now in {team}.",
+                    f"Their ID is now {user['code']}.",
+                ], "success", refresh=True)
             result = self.attendance.scan_tag(uid)
         except (UserError, AttendanceError) as exc:
-            return self._result("Not signed in", [str(exc)], "error")
+            return self._result("Team not changed", [str(exc)], "error")
         # The card has usually left the reader by now; it's written on the next scan.
-        notes = [f"Your ID is now {user['code']}. Use it on the keypad.", ""] + result.notes
-        return self._scan_screen(result.action, result.stats, result.session_seconds, notes)
+        notes = [f"Now in {team}. Your ID is {user['code']}; use it on the keypad.", ""]
+        return self._scan_screen(result.action, result.stats, result.session_seconds,
+                                 notes + result.notes)
 
     def _redraw(self) -> Screen:
         if self.state == ADMIN_MENU:
             return Screen("Admin menu", list(ADMIN_MENU_LINES), "prompt")
         if self.state == USER_MENU:
             return self._user_menu_screen()
-        if self.state == PICK_GROUP:
+        if self.state == PICK_TEAM:
             user = self.context["user"]
-            choices = [f"{key}  {self.users.section_names[letter]}"
-                       for key, letter in self.section_keys.items()]
-            return Screen(f"Welcome, {user['username']}!", [
-                "Your card is from the old system. Which group are you in?",
-                "Press its letter on the keypad:",
-                "", *choices, "", "*  cancel (you won't be signed in)",
+            choices = [f"{key}  {self.users.team_name(letter)}"
+                       for key, letter in self.team_choices.items()]
+            cancel = ("*  cancel (they won't be signed in)" if "uid" in self.context
+                      else "*  back")
+            return Screen(f"Team for {user['username']}", [
+                f"Currently: {self.users.team_name(user['section'])} ({user['code']})",
+                *choices, cancel,
             ], "prompt")
+        if self.state == ADMIN_PIN and self.context.get("legacy"):
+            user = self.context["user"]
+            return Screen(f"Welcome, {user['username']}!", [
+                "Your card is from the old system, so an admin",
+                "needs to choose your team first.",
+                "",
+                "Admin: type the PIN, then #",
+                "*  cancel (you won't be signed in)",
+            ], "prompt", entry="•" * len(self.buffer))
         if self.state == ENROLL_SCAN:
             user = self.context["user"]
             return Screen("Tap the new card",
@@ -496,10 +544,14 @@ class KioskController:
                           "prompt")
         if self.state in ID_STATES:
             title = {USER_ID: "Your user ID", ENROLL_ID: "Enroll a card: user ID",
-                     ADJUST_ID: "Adjust hours: user ID"}[self.state]
-            shown = self.buffer + "_" * (1 + ids.DIGITS - len(self.buffer))
-            return Screen(title, ["Section letter, then the number.", "*  back"],
-                          "prompt", entry=shown)
+                     ADJUST_ID: "Adjust hours: user ID",
+                     MOVE_ID: "Change team: user ID"}[self.state]
+            length = ids.code_length(self.buffer) if self.buffer else ids.DIGITS + 1
+            shown = self.buffer + "_" * (length - len(self.buffer))
+            hint = "Team letter, then the number."
+            if self.mentors:
+                hint += " Mentors: just the number."
+            return Screen(title, [hint, "# = enter early,  * = back"], "prompt", entry=shown)
         if self.state in PIN_STATES:
             title = "Admin PIN" if self.state == ADMIN_PIN else "Your PIN"
             return Screen(title, ["Then press #", "*  back"], "prompt",

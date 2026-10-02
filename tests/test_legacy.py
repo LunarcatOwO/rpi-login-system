@@ -75,9 +75,9 @@ def test_import_users_cards_hours_and_seasons(services, db, legacy, clock):
     assert summary.users == 3 and summary.cards == 2 and summary.cards_need_scan == 1
     assert summary.signed_in == 1 and summary.records == 2
     assert summary.seasons == ["Legacy 2024-01-08", "Legacy 2025-01-06"]
-    assert [c for _id, c, _n in summary.created] == ["B01", "B02", "B03"]
+    assert [c for _id, c, _n in summary.created] == ["B001", "B002", "B003"]
 
-    ana = users.get_by_code("B01")
+    ana = users.get_by_code("B001")
     stats = attendance.user_stats(ana["id"])
     assert stats.hours_minutes == (12, 30) and stats.rank == 1
     assert stats.last_sign_in == datetime(2026, 9, 30, 15) and not stats.signed_in
@@ -129,35 +129,47 @@ def test_name_clash_and_card_clash(services, db, legacy, clock):
     assert any("already belongs" in w for w in summary.warnings)
 
 
-def test_imported_cards_pick_a_group_on_first_scan(services, db, legacy, clock):
+def test_admin_picks_the_team_on_an_imported_cards_first_scan(services, db, legacy, clock):
     from nfc_login.hardware.simulated import SimulatedReader
     from nfc_login.kiosk import controller as kc
 
     attendance, _seasons, users = services
+    users.set_admin_pin("2468")
     clock.now = datetime(2026, 10, 1, 18, 0)                 # after the legacy data
     summary = LegacyImporter(db, clock=clock).run(legacy)
-    assert [code for _id, code, _n in summary.created] == ["U01", "U02", "U03"]
+    assert [code for _id, code, _n in summary.created] == ["U001", "U002", "U003"]
     controller = kc.KioskController(attendance, users, reader=SimulatedReader())
 
     screen = controller.handle_card("DEADBEEF")              # Ana, signed out
-    assert controller.state == kc.PICK_GROUP and screen.title == "Welcome, Ana!"
-    assert controller.handle_key("5").title == "Welcome, Ana!"   # not a group: ask again
+    assert controller.state == kc.ADMIN_PIN and screen.title == "Welcome, Ana!"
+    assert screen.buzz == "attention"
+    for key in "1111#":                                      # not the admin: no team, no sign-in
+        screen = controller.handle_key(key)
+    assert screen.title == "Wrong PIN" and controller.state == kc.IDLE
     assert all(r["username"] != "Ana" for r in attendance.currently_signed_in())
-    screen = controller.handle_key("C")
-    assert screen.title == "Welcome, Ana!" and "Your ID is now C01." in screen.lines[0]
+
+    controller.handle_card("DEADBEEF")
+    for key in "2468#":
+        screen = controller.handle_key(key)
+    assert controller.state == kc.PICK_TEAM and screen.title == "Team for Ana"
+    assert "3  Sustainability" in screen.lines and "5  Mentors" in screen.lines
+    assert controller.handle_key("9").title == "Team for Ana"    # not a choice: ask again
+    screen = controller.handle_key("3")
+    assert screen.title == "Welcome, Ana!" and "Your ID is C001" in screen.lines[0]
     assert controller.state == kc.IDLE
-    assert users.get_by_code("C01")["username"] == "Ana"
+    assert users.get_by_code("C001")["username"] == "Ana"
 
     clock.advance(minutes=30)
     assert controller.handle_card("DEADBEEF").title == "Goodbye, Ana!"   # no question now
 
-    screen = controller.handle_card("04A1B2C3D4E5F6")        # Ben, 7-byte card, signed in
-    assert controller.state == kc.PICK_GROUP
+    controller.handle_card("04A1B2C3D4E5F6")                 # Ben, 7-byte card, signed in
     assert controller.handle_key("*").title == "Tap your card"           # cancel
-    assert users.get_by_code("U02")["username"] == "Ben"
+    assert users.get_by_code("U002")["username"] == "Ben"
     controller.handle_card("04A1B2C3D4E5F6")
-    assert controller.handle_key("B").title == "Goodbye, Ben!"
-    assert users.get_by_code("B01")["username"] == "Ben"
+    for key in "2468#":
+        controller.handle_key(key)
+    assert controller.handle_key("5").title == "Goodbye, Ben!"           # mentors
+    assert users.get_by_code("001")["username"] == "Ben"
 
 
 def test_u_is_reserved(tmp_path):

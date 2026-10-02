@@ -36,41 +36,53 @@ class UserService:
     def section_names(self) -> dict[str, str]:
         return {s["letter"]: s["name"] for s in self.sections}
 
-    def add(self, username: str, section: str, pin: str | None = None) -> dict:
-        """Create a user in a section; they get the next free ID there (A01, A02...)."""
-        username = username.strip()
+    def team_name(self, section: str, short: bool = False) -> str:
+        """'B' -> 'Impact'. Imported people with no team yet get "No team yet"."""
+        for s in self.sections:
+            if s["letter"] == section:
+                return s.get("short", s["name"]) if short else s["name"]
+        return ids.UNSORTED_NAME if section == ids.UNSORTED else section
+
+    def _check_section(self, section: str) -> str:
         section = section.strip().upper()
+        if section not in self.section_names:
+            choices = ", ".join(f"{k} ({v})" for k, v in self.section_names.items())
+            raise UserError(f"Team must be one of {choices}.")
+        return section
+
+    def _next_number(self, cur, section: str) -> int:
+        number = repo.next_user_number(cur, section)
+        if number > ids.MAX_NUMBER:
+            raise UserError(f"{self.team_name(section)} is full ({ids.MAX_NUMBER} people).")
+        return number
+
+    def add(self, username: str, section: str, pin: str | None = None) -> dict:
+        """Create a user in a team; they get the next free ID there (A001, A002...)."""
+        username = username.strip()
         if not username:
             raise UserError("Username can't be empty.")
         if len(username) > 64:
             raise UserError("Username must be 64 characters or fewer.")
-        if section not in self.section_names:
-            raise UserError(f"Section must be one of {', '.join(self.section_names)}.")
+        section = self._check_section(section)
         pin_hash = hash_pin(pin) if pin else None
         try:
             with self.db.transaction() as cur:
-                number = repo.next_user_number(cur, section)
-                if number > ids.MAX_NUMBER:
-                    raise UserError(f"Section {section} is full ({ids.MAX_NUMBER} users).")
+                number = self._next_number(cur, section)
                 user_id = repo.create_user(cur, username, section, number, self.clock(), pin_hash)
                 return repo.get_user(cur, user_id)
         except pymysql.err.IntegrityError:
             raise UserError(f"Username {username!r} is already taken.") from None
 
     def move(self, user_id: int, section: str) -> dict:
-        """Put a user in another section; they get its next free ID."""
-        section = section.strip().upper()
-        if section not in self.section_names:
-            raise UserError(f"Section must be one of {', '.join(self.section_names)}.")
+        """Put a user in another team; they get its next free ID."""
+        section = self._check_section(section)
         with self.db.transaction() as cur:
             user = repo.get_user(cur, user_id, for_update=True)
             if not user:
                 raise UserError("No user with that ID.")
             if user["section"] == section:
                 return user
-            number = repo.next_user_number(cur, section)
-            if number > ids.MAX_NUMBER:
-                raise UserError(f"Section {section} is full ({ids.MAX_NUMBER} users).")
+            number = self._next_number(cur, section)
             cur.execute("UPDATE users SET section = %s, number = %s WHERE id = %s",
                         (section, number, user_id))
             return repo.get_user(cur, user_id)

@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS seasons (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- People who sign in. Users carry over from season to season.
--- Their user ID is section letter + two-digit number, e.g. A07 (section 'A', number 7).
+-- Their user ID is team letter + three-digit number, e.g. A007 (section 'A', number 7);
+-- mentors (section 'M') have just the number, e.g. 007.
 -- `id` is only an internal key and is never shown.
 CREATE TABLE IF NOT EXISTS users (
     id          INT AUTO_INCREMENT PRIMARY KEY,

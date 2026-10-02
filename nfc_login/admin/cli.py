@@ -2,10 +2,11 @@
 
     python3 -m nfc_login.admin --help
 
-Run it on the Pi (over SSH is fine). Users are referred to by their ID,
-a section letter plus number such as A07. Commands that use the NFC reader
-(`tag enroll` without --uid, `tag read`) need the kiosk service stopped first,
-since only one program can talk to the reader at a time.
+Run it on the Pi (over SSH is fine). Users are referred to by their ID, a
+team letter plus number such as A007, or just a number (007) for mentors.
+Commands that use the NFC reader (`tag enroll` without --uid, `tag read`)
+need the kiosk service stopped first, since only one program can talk to the
+reader at a time.
 """
 
 from __future__ import annotations
@@ -179,6 +180,14 @@ def cmd_tag_read(s, args, config):
     if hasattr(reader, "is_classic"):
         print("Type: " + ("MIFARE Classic (phones can't read the link)" if reader.is_classic()
                           else "NTAG / other 7-byte UID card"))
+    if hasattr(reader, "read_ndef"):
+        from nfc_login.hardware.nfc_reader import TagReadError
+        from nfc_login.tags import ndef
+        try:
+            for record in ndef.decode_message(reader.read_ndef()):
+                print("  " + ndef.record_text(record))
+        except TagReadError as exc:
+            print(f"Card info: {exc}")
 
 
 def cmd_season_show(s, args, config):
@@ -330,9 +339,9 @@ def build_parser() -> argparse.ArgumentParser:
                    ).set_defaults(func=cmd_set_admin_pin)
 
     user = sub.add_parser("user", help="manage users").add_subparsers(dest="action", required=True)
-    c = user.add_parser("add", help="create a user (gets the next free ID in the section)")
+    c = user.add_parser("add", help="create a user (gets the next free ID in the team)")
     c.add_argument("username")
-    c.add_argument("--section", required=True, help="section letter, e.g. A")
+    c.add_argument("--section", required=True, help="team letter: A Robot, B Impact, C Sustainability, D Strategy, M Mentors")
     c.add_argument("--pin", action="store_true", help="also set a keypad PIN")
     c.set_defaults(func=cmd_user_add)
     c = user.add_parser("list", help="list users")
@@ -342,32 +351,32 @@ def build_parser() -> argparse.ArgumentParser:
                                  ("deactivate", cmd_user_deactivate, "hide a user"),
                                  ("activate", cmd_user_activate, "un-hide a user")]:
         c = user.add_parser(name, help=helptext)
-        c.add_argument("code", help="user ID, e.g. A07")
+        c.add_argument("code", help="user ID, e.g. A007 (or 007 for a mentor)")
         c.set_defaults(func=func)
     c = user.add_parser("rename", help="change a username")
-    c.add_argument("code", help="user ID, e.g. A07")
+    c.add_argument("code", help="user ID, e.g. A007 (or 007 for a mentor)")
     c.add_argument("username")
     c.set_defaults(func=cmd_user_rename)
-    c = user.add_parser("move", help="put a user in another section (gives a new ID)")
+    c = user.add_parser("move", help="put a user in another team (gives a new ID)")
     c.add_argument("code", help="user ID, e.g. U03")
-    c.add_argument("section", help="section letter, e.g. B")
+    c.add_argument("section", help="team letter, e.g. B (M for mentors)")
     c.set_defaults(func=cmd_user_move)
     c = user.add_parser("set-pin", help="set or clear a user's keypad PIN")
-    c.add_argument("code", help="user ID, e.g. A07")
+    c.add_argument("code", help="user ID, e.g. A007 (or 007 for a mentor)")
     c.add_argument("--clear", action="store_true")
     c.set_defaults(func=cmd_user_set_pin)
 
     tag = sub.add_parser("tag", help="manage NFC cards").add_subparsers(dest="action",
                                                                          required=True)
     c = tag.add_parser("enroll", help="link a card to a user")
-    c.add_argument("code", help="user ID, e.g. A07")
+    c.add_argument("code", help="user ID, e.g. A007 (or 007 for a mentor)")
     c.add_argument("--uid", help="card UID in hex (skip to read it from the reader)")
     c.set_defaults(func=cmd_tag_enroll)
     tag.add_parser("list", help="list cards").set_defaults(func=cmd_tag_list)
     c = tag.add_parser("remove", help="stop a card from working")
     c.add_argument("uid")
     c.set_defaults(func=cmd_tag_remove)
-    tag.add_parser("read", help="print the UID of a card on the reader").set_defaults(
+    tag.add_parser("read", help="print a card's UID, type and the info written on it").set_defaults(
         func=cmd_tag_read)
 
     c = sub.add_parser("buzzer", help="play buzzer patterns to check the wiring")
@@ -394,7 +403,7 @@ def build_parser() -> argparse.ArgumentParser:
     for name, func, helptext in [("add", cmd_hours_add, "add time"),
                                  ("subtract", cmd_hours_subtract, "subtract time")]:
         c = hours.add_parser(name, help=helptext)
-        c.add_argument("code", help="user ID, e.g. A07")
+        c.add_argument("code", help="user ID, e.g. A007 (or 007 for a mentor)")
         c.add_argument("amount", help="e.g. 1h30m, 2h, 45m or 1:30")
         c.add_argument("--reason", help="shown in the history")
         c.set_defaults(func=func)
@@ -412,7 +421,7 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--database", default="attendance")
     c.add_argument("--sections", help="put people straight into these sections, in order, "
                                       "e.g. A or A,B (default: everyone gets a U ID and "
-                                      "picks a group on their first card scan)")
+                                      "gets a team from an admin on their first card scan)")
     c.add_argument("--dry-run", action="store_true", help="show what would happen, save nothing")
     c.set_defaults(func=cmd_import_legacy)
 
