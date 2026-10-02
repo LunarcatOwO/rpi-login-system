@@ -27,7 +27,7 @@ from importlib import resources
 from urllib.parse import parse_qs, urlparse
 
 from nfc_login.app import Services
-from nfc_login.services import timefmt
+from nfc_login.services import ids, timefmt
 from nfc_login.services.attendance import AttendanceError
 from nfc_login.services.users import UserError
 
@@ -61,7 +61,9 @@ def status_payload(services: Services, sections: list[dict], leaderboard_size: i
     return {
         "season": att.active_season_name(),
         "now": now.isoformat(timespec="seconds"),
-        "sections": [{"letter": s["letter"], "name": s["name"]} for s in sections],
+        "sections": [{"letter": s["letter"], "name": s["name"]} for s in sections]
+        + ([{"letter": ids.UNSORTED, "name": ids.UNSORTED_NAME}]
+           if any(p["section"] == ids.UNSORTED for p in here) else []),
         "here": here,
         "leaderboard": board,
     }
@@ -329,7 +331,7 @@ def admin_page(services: Services, section_names: dict[str, str], message: str,
                               for k, v in section_names.items())
     user_rows = "".join(
         f"<tr><td>{e(u['code'])}</td><td>{e(u['username'])}</td>"
-        f"<td>{e(section_names.get(u['section'], u['section']))}</td>"
+        f"<td>{e(section_names.get(u['section'], ids.UNSORTED_NAME))}</td>"
         f"<td>{e(timefmt.format_duration(totals[u['code']].total_seconds)) if u['code'] in totals else '-'}</td>"
         f"<td>{'#' + str(totals[u['code']].rank) if u['code'] in totals else '-'}</td></tr>"
         for u in users)

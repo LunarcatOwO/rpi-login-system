@@ -5,6 +5,11 @@ from __future__ import annotations
 DIGITS = 2
 MAX_NUMBER = 10 ** DIGITS - 1
 
+# Holding "section" for people imported from the legacy system. Their old cards
+# carry no group, so they pick one on their first scan (see kiosk/controller.py).
+UNSORTED = "U"
+UNSORTED_NAME = "No group yet"
+
 
 def format_code(section: str, number: int) -> str:
     return f"{section}{number:0{DIGITS}d}"

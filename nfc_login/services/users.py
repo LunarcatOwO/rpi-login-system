@@ -57,6 +57,24 @@ class UserService:
         except pymysql.err.IntegrityError:
             raise UserError(f"Username {username!r} is already taken.") from None
 
+    def move(self, user_id: int, section: str) -> dict:
+        """Put a user in another section; they get its next free ID."""
+        section = section.strip().upper()
+        if section not in self.section_names:
+            raise UserError(f"Section must be one of {', '.join(self.section_names)}.")
+        with self.db.transaction() as cur:
+            user = repo.get_user(cur, user_id, for_update=True)
+            if not user:
+                raise UserError("No user with that ID.")
+            if user["section"] == section:
+                return user
+            number = repo.next_user_number(cur, section)
+            if number > ids.MAX_NUMBER:
+                raise UserError(f"Section {section} is full ({ids.MAX_NUMBER} users).")
+            cur.execute("UPDATE users SET section = %s, number = %s WHERE id = %s",
+                        (section, number, user_id))
+            return repo.get_user(cur, user_id)
+
     def get(self, user_id: int) -> dict:
         with self.db.transaction() as cur:
             user = repo.get_user(cur, user_id)

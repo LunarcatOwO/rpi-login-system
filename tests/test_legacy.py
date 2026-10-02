@@ -127,3 +127,42 @@ def test_name_clash_and_card_clash(services, db, legacy, clock):
     names = [n for _id, _c, n in summary.created]
     assert "Ana (old 1)" in names
     assert any("already belongs" in w for w in summary.warnings)
+
+
+def test_imported_cards_pick_a_group_on_first_scan(services, db, legacy, clock):
+    from nfc_login.hardware.simulated import SimulatedReader
+    from nfc_login.kiosk import controller as kc
+
+    attendance, _seasons, users = services
+    clock.now = datetime(2026, 10, 1, 18, 0)                 # after the legacy data
+    summary = LegacyImporter(db, clock=clock).run(legacy)
+    assert [code for _id, code, _n in summary.created] == ["U01", "U02", "U03"]
+    controller = kc.KioskController(attendance, users, reader=SimulatedReader())
+
+    screen = controller.handle_card("DEADBEEF")              # Ana, signed out
+    assert controller.state == kc.PICK_GROUP and screen.title == "Welcome, Ana!"
+    assert controller.handle_key("5").title == "Welcome, Ana!"   # not a group: ask again
+    assert all(r["username"] != "Ana" for r in attendance.currently_signed_in())
+    screen = controller.handle_key("C")
+    assert screen.title == "Welcome, Ana!" and "Your ID is now C01." in screen.lines[0]
+    assert controller.state == kc.IDLE
+    assert users.get_by_code("C01")["username"] == "Ana"
+
+    clock.advance(minutes=30)
+    assert controller.handle_card("DEADBEEF").title == "Goodbye, Ana!"   # no question now
+
+    screen = controller.handle_card("04A1B2C3D4E5F6")        # Ben, 7-byte card, signed in
+    assert controller.state == kc.PICK_GROUP
+    assert controller.handle_key("*").title == "Tap your card"           # cancel
+    assert users.get_by_code("U02")["username"] == "Ben"
+    controller.handle_card("04A1B2C3D4E5F6")
+    assert controller.handle_key("B").title == "Goodbye, Ben!"
+    assert users.get_by_code("B01")["username"] == "Ben"
+
+
+def test_u_is_reserved(tmp_path):
+    from nfc_login.config import load_config
+    path = tmp_path / "config.toml"
+    path.write_text('[[sections]]\nletter = "U"\nname = "x"\nkey = "A"\n')
+    with pytest.raises(ValueError, match="reserved"):
+        load_config(path)

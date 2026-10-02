@@ -120,6 +120,7 @@ Run on the Pi from the repo folder (over SSH is fine):
 | `user list [--all]` | List users with ID and section |
 | `user show B04` | Time, rank, last sign-in/out |
 | `user rename B04 "New Name"` | Change a username |
+| `user move U03 B` | Put someone in another section (they get its next free ID) |
 | `user set-pin B04 [--clear]` | Set or remove a keypad PIN |
 | `user deactivate B04` / `activate B04` | Hide someone (history is kept; their cards stop working) |
 | `hours add B04 1h30m [--reason "..."]` | Add time this season |

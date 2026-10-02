@@ -160,6 +160,10 @@ def _check_sections(sections: list[dict]) -> None:
     keys = [s["key"].upper() for s in sections]
     if len(set(letters)) != len(letters) or len(set(keys)) != len(keys):
         raise ValueError("each section needs its own letter and its own keypad key")
+    from nfc_login.services.ids import UNSORTED
+    if UNSORTED in letters:
+        raise ValueError(f"section letter {UNSORTED} is reserved for imported users "
+                         "who haven't picked a group yet")
     for section in sections:
         if len(section["letter"]) != 1 or not section["letter"].isalpha():
             raise ValueError(f"section letter must be one letter: {section['letter']!r}")
