@@ -156,6 +156,23 @@ def cmd_tag_remove(s, args, config):
     print("Card removed. It will no longer sign anyone in.")
 
 
+def cmd_buzzer_test(s, args, config):
+    import time
+
+    from nfc_login.hardware import create_buzzer
+    buzzer = create_buzzer(config)
+    if buzzer is None:
+        print("The buzzer is off (simulated mode, or [hardware.buzzer] enabled = false).")
+        return
+    names = args.patterns or list(buzzer.patterns)
+    for name in names:
+        if name not in buzzer.patterns:
+            raise UserError(f"No pattern {name!r}. Patterns: {', '.join(buzzer.patterns)}")
+        print(f"{name:10} {buzzer.patterns[name]}")
+        buzzer.play(name)
+        time.sleep(sum(buzzer.patterns[name]) / 1000 + 0.8)
+
+
 def cmd_tag_read(s, args, config):
     reader, uid = _wait_for_card(config)
     print(f"UID: {uid}")
@@ -352,6 +369,10 @@ def build_parser() -> argparse.ArgumentParser:
     c.set_defaults(func=cmd_tag_remove)
     tag.add_parser("read", help="print the UID of a card on the reader").set_defaults(
         func=cmd_tag_read)
+
+    c = sub.add_parser("buzzer", help="play buzzer patterns to check the wiring")
+    c.add_argument("patterns", nargs="*", help="pattern names (default: all)")
+    c.set_defaults(func=cmd_buzzer_test)
 
     season = sub.add_parser("season", help="seasons and resets").add_subparsers(
         dest="action", required=True)
