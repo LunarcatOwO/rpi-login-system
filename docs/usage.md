@@ -48,6 +48,10 @@ The right side of the kiosk screen has two tabs you can tap:
   here. It updates every 5 seconds and after every scan.
 - **Leaderboard:** the season ranking.
 
+The bar along the bottom adds up everyone's hours this season, then shows
+each team's total in turn (Robot, Impact, Sustainability, Strategy, Mentors),
+changing every 5 seconds. The clock in the top right is the current time.
+
 The same live list is on a web page anyone on the network can open on a
 phone or laptop: **`http://<pi-address>:8080/`**. It's grouped by team,
 updates every 3 seconds, and shows the leaderboard (with each person's team)
