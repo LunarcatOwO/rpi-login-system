@@ -140,7 +140,7 @@ async function loadSide() {
     $("season").textContent = "Season " + side.season;
     const keys = side.keys.map(k => k.key).join("/");
     $("hint").textContent = `No card? Type your ID: ${keys} + number` +
-      (side.mentors ? ", mentors just the number" : "") + "    * admin";
+      (side.mentors ? ", mentors numbers only" : "") + "    * admin";
     $("sim").classList.toggle("on", side.simulated);
     renderSide();
   } catch (e) { /* the event stream shows the offline notice */ }
