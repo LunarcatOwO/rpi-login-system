@@ -1,9 +1,14 @@
-// NFC Kiosk desktop app.
+// NFC Kiosk desktop app: boots the whole sign-in system and shows it.
 //
-// Starts the Python kiosk (python -m nfc_login --web-ui PORT) from the
-// rpi-login-system install, waits until it answers, then shows its screen in
-// a fullscreen kiosk window sized for the 5 inch 800x480 touchscreen. If the
-// Python side stops, the window says why and it's restarted after a pause.
+// On launch, in order, with each step shown on screen:
+//   1. the MariaDB database: checked, and started if it's on this Pi and down
+//   2. the Python kiosk (python -m nfc_login --web-ui PORT) from the
+//      rpi-login-system install, which brings up the NFC reader, keypad,
+//      buzzer and the live web page on :8080
+//   3. the kiosk screen, fullscreen at 800x480 (the 5 inch touchscreen)
+// If any step fails, the screen says which and why, and it tries again.
+// Quitting (Ctrl+Alt+Q) stops the kiosk, and the database too if this app
+// started it.
 //
 // Options (command line, or the matching environment variable):
 //   --home PATH     the rpi-login-system folder   NFC_KIOSK_HOME (default ~/rpi-login-system)
@@ -11,13 +16,12 @@
 //   --port N        local port for the screen     NFC_KIOSK_PORT (default 8081)
 //   --simulate      no card reader or keypad (try it on a PC)
 //   --windowed      an 800x480 window instead of fullscreen kiosk mode
-//
-// Ctrl+Alt+Q quits (kiosk mode has no close button).
 
 const { app, BrowserWindow, globalShortcut, session } = require("electron");
 const { spawn } = require("child_process");
 const fs = require("fs");
 const http = require("http");
+const net = require("net");
 const os = require("os");
 const path = require("path");
 
@@ -33,40 +37,183 @@ const PORT = Number(option("port", "NFC_KIOSK_PORT", "8081"));
 const SIMULATE = process.argv.includes("--simulate");
 const WINDOWED = process.argv.includes("--windowed");
 const URL = `http://127.0.0.1:${PORT}/`;
-const RESTART_SECONDS = 5;
+const RETRY_SECONDS = 5;
+const DB_WAIT_SECONDS = 30;
 
 let win = null;
 let backend = null;
+let startedDatabase = false;
 let quitting = false;
+let shutDown = false;
 let logTail = [];
+let steps = [];
+let ready = false;
 
-// Wayland (Raspberry Pi OS Bookworm) or X11, whichever the desktop runs.
+// Wayland (Raspberry Pi OS Bookworm and later) or X11, whichever the desktop runs.
 app.commandLine.appendSwitch("ozone-platform-hint", "auto");
+
+// ------------------------------------------------------------ status screen
+
+const STEPS = [
+  ["database", "Database"],
+  ["python", "Kiosk program"],
+  ["reader", "Card reader"],
+  ["keypad", "Keypad"],
+  ["buzzer", "Buzzer"],
+  ["web", "Live web page (:8080)"],
+  ["screen", "Kiosk screen"],
+];
+
+function resetSteps() {
+  steps = STEPS.map(([id, label]) => ({ id, label, state: "wait", detail: "" }));
+}
+
+function step(id, state, detail = "") {
+  const s = steps.find(x => x.id === id);
+  if (s) Object.assign(s, { state, detail });
+  render();
+}
+
+let status = { title: "Starting the kiosk…", message: "" };
+
+function render() {
+  if (!win || ready) return;
+  const data = { ...status, steps, log: status.showLog ? logTail.slice(-6).join("\n") : "" };
+  win.webContents.executeJavaScript(`window.setStatus && setStatus(${JSON.stringify(data)})`)
+    .catch(() => {});
+}
+
+function showStatusPage() {
+  ready = false;
+  win.loadFile(path.join(__dirname, "loading.html")).then(render).catch(() => {});
+}
+
+function fail(id, detail, message) {
+  step(id, "fail", detail);
+  status = { title: "The kiosk couldn't start", message: `${message} Trying again in ${RETRY_SECONDS} s.`,
+             showLog: true };
+  render();
+  setTimeout(() => { if (!quitting) boot(true); }, RETRY_SECONDS * 1000);
+}
+
+// ------------------------------------------------------------ 1. database
+
+function run(cmd, args, timeoutMs) {
+  return new Promise(resolve => {
+    const child = spawn(cmd, args, { timeout: timeoutMs });
+    let err = "";
+    child.stderr.on("data", d => { err += d; });
+    child.on("error", e => resolve({ code: -1, err: e.message }));
+    child.on("exit", code => resolve({ code, err: err.trim() }));
+  });
+}
+
+function databaseAddress() {
+  // Just enough TOML to find [database] host/port; defaults match config.py.
+  let host = "localhost", port = 3306, section = "";
+  try {
+    for (const raw of fs.readFileSync(CONFIG, "utf8").split("\n")) {
+      const line = raw.replace(/#.*/, "").trim();
+      const head = line.match(/^\[(.+)\]$/);
+      if (head) { section = head[1].trim(); continue; }
+      const kv = line.match(/^(\w+)\s*=\s*"?([^"]*)"?$/);
+      if (section === "database" && kv) {
+        if (kv[1] === "host") host = kv[2];
+        if (kv[1] === "port") port = Number(kv[2]);
+      }
+    }
+  } catch { /* no config file: defaults */ }
+  return { host, port };
+}
+
+function reachable({ host, port }) {
+  return new Promise(resolve => {
+    const sock = net.connect({ host, port, timeout: 1500 });
+    sock.on("connect", () => { sock.destroy(); resolve(true); });
+    sock.on("error", () => resolve(false));
+    sock.on("timeout", () => { sock.destroy(); resolve(false); });
+  });
+}
+
+async function ensureDatabase() {
+  const addr = databaseAddress();
+  step("database", "run", `${addr.host}:${addr.port}`);
+  if (await reachable(addr)) return step("database", "ok", "running");
+  if (!["localhost", "127.0.0.1", "::1"].includes(addr.host)) {
+    return fail("database", "not reachable", `The database at ${addr.host}:${addr.port} isn't answering.`);
+  }
+  step("database", "run", "starting MariaDB…");
+  // Raspberry Pi OS lets the desktop user sudo without a password; -n never asks.
+  const result = await run("sudo", ["-n", "systemctl", "start", "mariadb"], 60_000);
+  if (result.code === 0) startedDatabase = true;
+  else if (!logTail.some(l => l.startsWith("systemctl start mariadb"))) {
+    logTail = logTail.concat(`systemctl start mariadb: ${result.err}`).slice(-12);
+  }
+  for (let i = 0; i < DB_WAIT_SECONDS; i++) {
+    if (await reachable(addr)) return step("database", "ok", startedDatabase ? "started" : "running");
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  return fail("database", "won't start",
+              "MariaDB isn't running. Check it with: sudo systemctl status mariadb.");
+}
+
+// ------------------------------------------------------------ 2. the Python kiosk
 
 function python() {
   const venv = path.join(HOME, ".venv", "bin", "python");
   return fs.existsSync(venv) ? venv : "python3";
 }
 
+// Startup lines from nfc_login/__main__.py and web/server.py -> steps.
+const PROGRESS = [
+  [/active season: (.*)/, m => step("database", "ok", `season ${m[1]}`)],
+  [/NFC reader: (.*)/, m => step("reader", "ok", m[1])],
+  [/keypad: (\w+)/, m => step("keypad", m[1] === "ready" ? "ok" : "off", m[1])],
+  [/buzzer: (\w+)/, m => step("buzzer", m[1] === "ready" ? "ok" : "off", m[1])],
+  [/live page on (\S+)/, () => step("web", "ok", "port 8080")],
+  [/web page not started on port (\d+): (.*)/, m => step("web", "warn", m[2])],
+  [/live page: off/, () => step("web", "off", "off")],
+  [/kiosk screen at/, () => step("screen", "run", "")],
+];
+
 function startBackend() {
   const args = ["-m", "nfc_login", "--web-ui", String(PORT)];
   if (fs.existsSync(CONFIG)) args.push("--config", CONFIG);
   if (SIMULATE) args.push("--simulate");
-  logTail = [];
-  backend = spawn(python(), args, { cwd: HOME, env: { ...process.env, PYTHONUNBUFFERED: "1" } });
-  const keep = chunk => {
+  step("python", "run", path.basename(python()));
+  if (!fs.existsSync(path.join(HOME, "nfc_login"))) {
+    return fail("python", "not found", `No rpi-login-system in ${HOME}. Use --home to point at it.`);
+  }
+  const child = spawn(python(), args, { cwd: HOME, env: { ...process.env, PYTHONUNBUFFERED: "1" } });
+  backend = child;
+  let buffer = "";
+  const read = chunk => {
     process.stdout.write(chunk);
-    logTail = logTail.concat(String(chunk).split("\n")).filter(Boolean).slice(-15);
+    buffer += String(chunk);
+    const lines = buffer.split("\n");
+    buffer = lines.pop();
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      logTail = logTail.concat(line).slice(-12);
+      if (steps.find(s => s.id === "python").state === "run") step("python", "ok", "running");
+      for (const [pattern, apply] of PROGRESS) {
+        const m = line.match(pattern);
+        if (m) apply(m);
+      }
+    }
   };
-  backend.stdout.on("data", keep);
-  backend.stderr.on("data", keep);
-  backend.on("error", err => keep(`Couldn't start ${python()}: ${err.message}\n`));
-  backend.on("exit", code => {
-    backend = null;
+  child.stdout.on("data", read);
+  child.stderr.on("data", read);
+  child.on("error", err => logTail.push(`Couldn't start ${python()}: ${err.message}`));
+  child.on("exit", code => {
+    if (backend === child) backend = null;
     if (quitting) return;
-    showLoading(`The kiosk service exited (code ${code}). Restarting in ${RESTART_SECONDS} s.`);
-    setTimeout(() => { if (!quitting) { startBackend(); waitThenShow(); } }, RESTART_SECONDS * 1000);
+    // Whatever was still starting is what broke (e.g. the reader not wired).
+    const broken = steps.find(s => s.state === "run" || s.state === "wait") || steps[1];
+    showStatusPage();
+    fail(broken.id, `stopped (code ${code})`, "The kiosk program stopped.");
   });
+  return true;
 }
 
 function answering() {
@@ -77,19 +224,56 @@ function answering() {
   });
 }
 
-async function waitThenShow() {
+async function waitThenShow(child) {
   for (;;) {
-    if (quitting || !backend) return;
+    if (quitting || backend !== child) return;
     if (await answering()) break;
     await new Promise(r => setTimeout(r, 500));
   }
-  if (win) win.loadURL(URL + (WINDOWED ? "" : "?kiosk=1"));
+  step("screen", "ok");
+  status = { title: "Starting the kiosk…", message: "" };
+  await new Promise(r => setTimeout(r, 600));   // a moment to see everything ticked
+  if (quitting || backend !== child) return;
+  ready = true;
+  win.loadURL(URL + (WINDOWED ? "" : "?kiosk=1"));
 }
 
-function showLoading(error) {
-  if (!win) return;
-  const query = error ? { error, log: logTail.join("\n") } : {};
-  win.loadFile(path.join(__dirname, "loading.html"), { query });
+// ------------------------------------------------------------ boot and shutdown
+
+async function boot(retry = false) {
+  if (quitting) return;
+  resetSteps();
+  // On a retry the last error stays on screen until this attempt gets past it.
+  status = retry ? { ...status, message: "Trying again…" } : { title: "Starting the kiosk…", message: "" };
+  if (!retry) logTail = [];
+  showStatusPage();
+  await ensureDatabase();
+  if (quitting || steps[0].state !== "ok") return;   // fail() already set up a retry
+  if (startBackend() !== true) return;
+  waitThenShow(backend);
+}
+
+function stopBackend() {
+  return new Promise(resolve => {
+    if (!backend) return resolve();
+    const child = backend;
+    const timer = setTimeout(() => { child.kill("SIGKILL"); resolve(); }, 5000);
+    child.once("exit", () => { clearTimeout(timer); resolve(); });
+    child.kill("SIGINT");   // lets Python release the GPIO pins
+  });
+}
+
+async function shutdown() {
+  quitting = true;
+  if (win) {
+    ready = false;
+    resetSteps();
+    status = { title: "Shutting down…", message: "Stopping the kiosk" +
+               (startedDatabase ? " and the database." : ".") };
+    showStatusPage();
+  }
+  await stopBackend();
+  if (startedDatabase) await run("sudo", ["-n", "systemctl", "stop", "mariadb"], 30_000);
 }
 
 function createWindow() {
@@ -104,24 +288,25 @@ function createWindow() {
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   win.setMenu(null);
-  // The window only ever shows the local kiosk page or the loading page.
+  // The window only ever shows the local kiosk page or the status page.
   win.webContents.on("will-navigate", (event, url) => {
     if (!url.startsWith(URL) && !url.startsWith("file://")) event.preventDefault();
   });
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  showLoading();
 }
 
 app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((_wc, _perm, done) => done(false));
   globalShortcut.register("Control+Alt+Q", () => app.quit());
   createWindow();
-  startBackend();
-  waitThenShow();
+  boot();
 });
 
-app.on("before-quit", () => {
-  quitting = true;
-  if (backend) backend.kill("SIGINT")   // lets Python release the GPIO pins;
+app.on("before-quit", event => {
+  if (shutDown) return;
+  event.preventDefault();
+  if (quitting) return;
+  shutdown().finally(() => { shutDown = true; app.quit(); });
 });
 app.on("window-all-closed", () => app.quit());
+for (const sig of ["SIGTERM", "SIGINT"]) process.on(sig, () => app.quit());

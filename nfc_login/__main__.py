@@ -45,6 +45,8 @@ def main() -> None:
     keypad = create_keypad(config)
     buzzer = create_buzzer(config)
     logging.info("NFC reader: %s", reader.firmware_version())
+    logging.info("keypad: %s", "ready" if keypad else "off")
+    logging.info("buzzer: %s", "ready" if buzzer else "off")
 
     controller = KioskController(
         services.attendance,
@@ -56,7 +58,8 @@ def main() -> None:
         keypad_timeout=config.ui["keypad_timeout_seconds"],
     )
 
-    start_in_background(services, config)
+    if not start_in_background(services, config):
+        logging.info("live page: off")
     simulated = reader if config.hardware["mode"] == "simulated" else None
 
     if args.web_ui:
