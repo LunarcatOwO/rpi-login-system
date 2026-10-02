@@ -80,3 +80,12 @@ def test_sections_must_not_share_keys(tmp_path):
 def test_example_config_loads():
     config = load_config("config.example.toml")
     assert config.hardware["nfc"]["write_tags"] is True
+
+
+def test_team_totals():
+    from nfc_login.services.leaderboard import LeaderboardEntry, team_totals
+    entries = [LeaderboardEntry(1, 1, "A001", "a", "A", 3600),
+               LeaderboardEntry(2, 2, "A002", "b", "A", 1800),
+               LeaderboardEntry(3, 3, "001", "m", "M", 600)]
+    assert team_totals(entries) == (6000, {"A": 5400, "M": 600})
+    assert team_totals([]) == (0, {})
