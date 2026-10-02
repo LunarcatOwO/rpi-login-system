@@ -1,4 +1,8 @@
-"""Start the kiosk:  python3 -m nfc_login [--config config.toml] [--simulate]"""
+"""Start the kiosk:  python3 -m nfc_login [--config config.toml] [--simulate]
+
+With --web-ui the screen is served as a local web page instead of a Tkinter
+window; the Electron app (electron/) starts the kiosk this way and shows it.
+"""
 
 from __future__ import annotations
 
@@ -20,6 +24,9 @@ def main() -> None:
     parser.add_argument("--simulate", action="store_true",
                         help="run without the NFC reader and keypad")
     parser.add_argument("--windowed", action="store_true", help="don't go fullscreen")
+    parser.add_argument("--web-ui", type=int, nargs="?", const=8081, metavar="PORT",
+                        help="serve the kiosk screen at http://127.0.0.1:PORT/ "
+                             "(default 8081) instead of opening a window")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO,
@@ -50,12 +57,16 @@ def main() -> None:
     )
 
     start_in_background(services, config)
+    simulated = reader if config.hardware["mode"] == "simulated" else None
+
+    if args.web_ui:
+        run_web_ui(args.web_ui, controller, config, reader, keypad, buzzer, simulated)
+        return
 
     import tkinter as tk
 
     from nfc_login.ui.kiosk_window import KioskWindow
     root = tk.Tk()
-    simulated = reader if config.hardware["mode"] == "simulated" else None
     kiosk = KioskWindow(root, controller, config.ui, simulated_reader=simulated, buzzer=buzzer)
 
     NfcWorker(reader, controller, kiosk.publish).start()
@@ -64,6 +75,23 @@ def main() -> None:
                      config.hardware["keypad"]["poll_interval_seconds"]).start()
     try:
         root.mainloop()
+    finally:
+        if keypad is not None:
+            keypad.cleanup()
+
+
+def run_web_ui(port, controller, config, reader, keypad, buzzer, simulated) -> None:
+    from nfc_login.ui.web_kiosk import WebKiosk, serve
+    kiosk = WebKiosk(controller, config.ui, buzzer=buzzer, simulated_reader=simulated)
+    server = serve(kiosk, port)
+    NfcWorker(reader, controller, kiosk.publish).start()
+    if keypad is not None:
+        KeypadPoller(keypad, kiosk.press,
+                     config.hardware["keypad"]["poll_interval_seconds"]).start()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
     finally:
         if keypad is not None:
             keypad.cleanup()

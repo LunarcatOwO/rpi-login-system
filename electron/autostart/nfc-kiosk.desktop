@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=NFC Kiosk
+Comment=NFC sign-in kiosk
+Exec=nfc-kiosk
+Terminal=false
+X-GNOME-Autostart-enabled=true
