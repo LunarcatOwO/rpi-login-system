@@ -16,8 +16,7 @@ Check with `timedatectl`.
 git clone https://github.com/LunarcatOwO/rpi-login-system.git ~/rpi-login-system && bash ~/rpi-login-system/scripts/setup-pi.sh
 ```
 
-(The repo is private: when git asks for a password, use a GitHub personal
-access token.) `setup-pi.sh` runs `scripts/install.sh` (below), asks for the
+`setup-pi.sh` runs `scripts/install.sh` (below), asks for the
 admin PIN, downloads the Electron runtime and makes the desktop app
 (`electron/`) open fullscreen when the Pi boots, sets the Pi to log in to the
 desktop by itself, turns off screen blanking and offers to reboot. Running it
