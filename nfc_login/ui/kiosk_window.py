@@ -54,11 +54,12 @@ BOARD_REFRESH_MS = 60_000
 
 class KioskWindow:
     def __init__(self, root: tk.Tk, controller: KioskController, ui_config: dict,
-                 simulated_reader=None):
+                 simulated_reader=None, buzzer=None):
         self.root = root
         self.controller = controller
         self.cfg = ui_config
         self.events: queue.Queue = queue.Queue()
+        self.buzzer = buzzer
         self._revert_job = None
         self._keys: queue.Queue = queue.Queue()
         self._tab = "here"
@@ -172,7 +173,9 @@ class KioskWindow:
         """Thread-safe: queue a screen to show."""
         self.events.put(("screen", screen))
 
-    def show(self, screen: Screen) -> None:
+    def show(self, screen: Screen, sound: bool = True) -> None:
+        if sound and self.buzzer:
+            self.buzzer.play(screen.buzz)
         self.title_label.config(text=screen.title, fg=COLORS.get(screen.tone, COLORS["text"]))
         self.lines_label.config(text="\n".join(screen.lines))
         self.entry_label.config(text=f"> {screen.entry}" if screen.entry is not None else "")
@@ -187,7 +190,7 @@ class KioskWindow:
     def _revert(self) -> None:
         self._revert_job = None
         if self.controller.state == "idle":
-            self.show(self.controller.idle_screen())
+            self.show(self.controller.idle_screen(), sound=False)
 
     def refresh(self, board: bool = False) -> None:
         """Fetch who's here (and optionally the leaderboard) off the UI thread."""
@@ -260,6 +263,8 @@ class KioskWindow:
 
     def press(self, key: str) -> None:
         """Queue one keypad key. Safe to call from any thread."""
+        if self.buzzer:
+            self.buzzer.play("key")
         self._keys.put(key)
 
     def _key_loop(self) -> None:

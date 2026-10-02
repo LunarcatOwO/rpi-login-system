@@ -130,6 +130,7 @@ Run on the Pi from the repo folder (over SSH is fine):
 | `tag list` | All cards and owners |
 | `tag remove UID` | Lost card: stop it working |
 | `tag read` | Print the UID of the card on the reader |
+| `buzzer [PATTERN...]` | Play buzzer patterns to check the wiring (all of them by default) |
 | `season show` / `season list` | Current / all seasons |
 | `season new [NAME] [--yes]` | Season reset (see [seasons.md](seasons.md)) |
 | `season leaderboard [NAME]` | Leaderboard for any season |

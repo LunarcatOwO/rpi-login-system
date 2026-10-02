@@ -7,7 +7,7 @@ import logging
 
 from nfc_login.app import build_services
 from nfc_login.config import load_config
-from nfc_login.hardware import create_keypad, create_reader
+from nfc_login.hardware import create_buzzer, create_keypad, create_reader
 from nfc_login.hardware.keypad import KeypadPoller
 from nfc_login.kiosk.controller import KioskController
 from nfc_login.kiosk.nfc_worker import NfcWorker
@@ -36,6 +36,7 @@ def main() -> None:
 
     reader = create_reader(config)
     keypad = create_keypad(config)
+    buzzer = create_buzzer(config)
     logging.info("NFC reader: %s", reader.firmware_version())
 
     controller = KioskController(
@@ -55,7 +56,7 @@ def main() -> None:
     from nfc_login.ui.kiosk_window import KioskWindow
     root = tk.Tk()
     simulated = reader if config.hardware["mode"] == "simulated" else None
-    kiosk = KioskWindow(root, controller, config.ui, simulated_reader=simulated)
+    kiosk = KioskWindow(root, controller, config.ui, simulated_reader=simulated, buzzer=buzzer)
 
     NfcWorker(reader, controller, kiosk.publish).start()
     if keypad is not None:
