@@ -21,6 +21,8 @@ header, footer { background: var(--panel); display: flex; align-items: center; p
 header { height: 42px; gap: 16px; }
 header .name { font-weight: bold; font-size: 20px; flex: 1; }
 header .season { color: var(--muted); font-size: 17px; }
+header .update { display: none; color: var(--info); font-size: 15px; align-items: center; gap: 4px; }
+header .update.on { display: flex; }
 header .clock { font-size: 20px; font-variant-numeric: tabular-nums; }
 main { flex: 1; display: flex; min-height: 0; }
 .status { flex: 1; padding: 14px 16px; min-width: 0; }
@@ -62,6 +64,12 @@ body.typing aside { display: none; }
 <header>
   <span class="name">NFC Sign In</span>
   <span class="season" id="season"></span>
+  <span class="update" id="update" title="A newer version is on GitHub">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M2.5 13.5h11"/></svg>
+    Update
+  </span>
   <span class="clock" id="clock"></span>
 </header>
 <main>
@@ -169,6 +177,7 @@ async function loadSide() {
     $("hint").textContent = `No card? Type your ID: ${keys} + number` +
       (side.mentors ? ", mentors numbers only" : "") + "    * admin";
     $("sim").classList.toggle("on", side.simulated);
+    $("update").classList.toggle("on", side.update);
     renderSide();
   } catch (e) { /* the event stream shows the offline notice */ }
 }

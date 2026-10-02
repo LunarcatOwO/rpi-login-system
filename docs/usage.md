@@ -51,6 +51,12 @@ The right side of the kiosk screen has two tabs you can tap:
 
 The clock in the top right is the current time.
 
+When the Pi is online it checks GitHub every 6 hours, and a small blue
+**⬇ Update** appears next to the clock when there's a newer version. It only
+tells you; to install it, run `cd ~/rpi-login-system && git pull` and restart
+the Pi. Turn the check off or change how often it runs under `[updates]` in
+`config.toml`.
+
 The same live list is on a web page anyone on the network can open on a
 phone or laptop: **`http://<pi-address>:8080/`**. It's grouped by team,
 updates every 3 seconds, and shows the leaderboard (with each person's team)

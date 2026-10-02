@@ -15,6 +15,7 @@ from nfc_login.hardware import create_buzzer, create_keypad, create_reader
 from nfc_login.hardware.keypad import KeypadPoller
 from nfc_login.kiosk.controller import KioskController
 from nfc_login.kiosk.nfc_worker import NfcWorker
+from nfc_login.services.updates import UpdateChecker
 from nfc_login.web.server import start_in_background
 
 
@@ -61,16 +62,21 @@ def main() -> None:
     if not start_in_background(services, config):
         logging.info("live page: off")
     simulated = reader if config.hardware["mode"] == "simulated" else None
+    updates = None
+    if config.updates["enabled"]:
+        updates = UpdateChecker(check_hours=config.updates["check_hours"])
+        updates.start()
 
     if args.web_ui:
-        run_web_ui(args.web_ui, controller, config, reader, keypad, buzzer, simulated)
+        run_web_ui(args.web_ui, controller, config, reader, keypad, buzzer, simulated, updates)
         return
 
     import tkinter as tk
 
     from nfc_login.ui.kiosk_window import KioskWindow
     root = tk.Tk()
-    kiosk = KioskWindow(root, controller, config.ui, simulated_reader=simulated, buzzer=buzzer)
+    kiosk = KioskWindow(root, controller, config.ui, simulated_reader=simulated, buzzer=buzzer,
+                        updates=updates)
 
     NfcWorker(reader, controller, kiosk.publish).start()
     if keypad is not None:
@@ -83,9 +89,10 @@ def main() -> None:
             keypad.cleanup()
 
 
-def run_web_ui(port, controller, config, reader, keypad, buzzer, simulated) -> None:
+def run_web_ui(port, controller, config, reader, keypad, buzzer, simulated, updates) -> None:
     from nfc_login.ui.web_kiosk import WebKiosk, serve
-    kiosk = WebKiosk(controller, config.ui, buzzer=buzzer, simulated_reader=simulated)
+    kiosk = WebKiosk(controller, config.ui, buzzer=buzzer, simulated_reader=simulated,
+                     updates=updates)
     server = serve(kiosk, port)
     NfcWorker(reader, controller, kiosk.publish).start()
     if keypad is not None:

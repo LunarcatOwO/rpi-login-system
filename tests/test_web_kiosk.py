@@ -84,3 +84,10 @@ def test_screen_keyboard_types_a_name(kiosk):
     with pytest.raises(urllib.error.HTTPError) as err:
         post(base + "/type", "char=toolong")
     assert err.value.code == 400
+
+
+def test_update_icon_flag(kiosk):
+    kiosk, _users, base = kiosk
+    assert json.load(urllib.request.urlopen(base + "/api/kiosk"))["update"] is False
+    kiosk.updates = type("U", (), {"available": True})()
+    assert json.load(urllib.request.urlopen(base + "/api/kiosk"))["update"] is True

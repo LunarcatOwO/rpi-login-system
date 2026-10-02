@@ -93,6 +93,12 @@ DEFAULTS: dict = {
         {"letter": "D", "name": "Strategy", "short": "Strategy", "key": "D"},
         {"letter": "M", "name": "Mentors", "short": "Mentor", "key": ""},
     ],
+    # When the Pi is online, check GitHub for a newer version every few hours
+    # and show a small download icon by the clock if there is one.
+    "updates": {
+        "enabled": True,
+        "check_hours": 6,
+    },
     # Live "who's here" page and admin page, served by the kiosk on the LAN.
     "web": {
         "enabled": True,
@@ -150,6 +156,10 @@ class Config:
     @property
     def sections(self) -> list[dict]:
         return self.data["sections"]
+
+    @property
+    def updates(self) -> dict:
+        return self.data["updates"]
 
     @property
     def web(self) -> dict:
