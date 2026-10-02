@@ -1,0 +1,69 @@
+"""The kiosk screen served for the Electron app (nfc_login/ui/web_kiosk.py)."""
+
+from __future__ import annotations
+
+import json
+import threading
+import time
+import urllib.error
+import urllib.request
+
+import pytest
+
+from nfc_login.hardware.simulated import SimulatedReader
+from nfc_login.kiosk import controller as kc
+from nfc_login.kiosk.nfc_worker import NfcWorker
+from nfc_login.ui.web_kiosk import WebKiosk, serve
+
+
+@pytest.fixture
+def kiosk(services):
+    attendance, _seasons, users = services
+    reader = SimulatedReader()
+    controller = kc.KioskController(attendance, users, reader=reader)
+    kiosk = WebKiosk(controller, {"leaderboard_size": 10}, simulated_reader=reader)
+    server = serve(kiosk, 0)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    NfcWorker(reader, controller, kiosk.publish).start()
+    yield kiosk, users, f"http://127.0.0.1:{server.server_address[1]}"
+    server.shutdown()
+
+
+def post(url, data, headers=None):
+    req = urllib.request.Request(url, data=data.encode(), headers=headers or {})
+    return json.load(urllib.request.urlopen(req))
+
+
+def next_screen(q, title, timeout=3.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        event = q.get(timeout=timeout)
+        if event["type"] == "screen" and event["screen"]["title"] == title:
+            return event["screen"]
+    raise AssertionError(f"no {title!r} screen")
+
+
+def test_keys_and_taps_reach_the_kiosk(kiosk):
+    kiosk, users, base = kiosk
+    users.enroll_tag("04AA", users.add("taylor", "B")["id"])
+    q = kiosk.listen()
+    post(base + "/key", "key=b")
+    assert next_screen(q, "Your user ID")["entry"] == "B___"
+    post(base + "/key", "key=*")
+    post(base + "/tap", "uid=04AA")
+    screen = next_screen(q, "Welcome, taylor!")
+    assert "ID B001  ·  Impact" in screen["lines"]
+    side = json.load(urllib.request.urlopen(base + "/api/kiosk"))
+    assert side["here"][0]["team"] == "Impact" and side["simulated"]
+    assert [k["key"] for k in side["keys"]] == list("ABCD") and side["mentors"]
+
+
+def test_other_web_pages_cant_press_keys(kiosk):
+    _kiosk, _users, base = kiosk
+    for headers in ({"Origin": "http://evil.example"}, {"Host": "evil.example"}):
+        with pytest.raises(urllib.error.HTTPError) as err:
+            post(base + "/key", "key=1", headers)
+        assert err.value.code == 403
+    with pytest.raises(urllib.error.HTTPError) as err:
+        post(base + "/key", "key=Z")
+    assert err.value.code == 400
