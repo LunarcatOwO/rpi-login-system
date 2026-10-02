@@ -7,7 +7,7 @@
 //      buzzer and the live web page on :8080
 //   3. the kiosk screen, fullscreen at 800x480 (the 5 inch touchscreen)
 // If any step fails, the screen says which and why, and it tries again.
-// Quitting (Ctrl+Alt+Q) stops the kiosk, and the database too if this app
+// Quitting (Ctrl+Alt+Q, or admin menu 8 on the keypad) stops the kiosk, and the database too if this app
 // started it.
 //
 // Options (command line, or the matching environment variable):
@@ -174,6 +174,8 @@ const PROGRESS = [
   [/web page not started on port (\d+): (.*)/, m => step("web", "warn", m[2])],
   [/live page: off/, () => step("web", "off", "off")],
   [/kiosk screen at/, () => step("screen", "run", "")],
+  // Admin menu 8 on the keypad: close the app without needing a keyboard.
+  [/close requested from the admin menu/, () => setTimeout(() => app.quit(), 2500)],
 ];
 
 function startBackend() {

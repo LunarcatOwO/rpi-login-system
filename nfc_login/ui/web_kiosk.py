@@ -9,6 +9,8 @@ kiosk.
     GET  /events           Server-Sent Events: screens, and "refresh" hints
     GET  /api/kiosk        who's here + leaderboard (+ season, team names)
     POST /key   key=7      a keypad key (the page sends computer keyboard keys)
+    POST /type  char=a     the on-screen keyboard, while typing a name
+                           (char=back deletes, char=done finishes)
     POST /tap   uid=04AB…  simulated mode only: pretend a card was tapped
 """
 
@@ -62,6 +64,9 @@ class WebKiosk:
             self._revert_at = (time.monotonic() + screen.hold_seconds
                                if screen.hold_seconds else None)
         self._send({"type": "screen", "screen": screen_json(screen)})
+        if screen.close_app:
+            # The Electron app watches for this line and quits (electron/main.js).
+            log.info("kiosk: close requested from the admin menu")
         if screen.refresh_leaderboard:
             self._send({"type": "refresh"})
 
@@ -75,11 +80,20 @@ class WebKiosk:
             self.buzzer.play("key")
         self._keys.put(key)
 
+    def type_char(self, char: str) -> None:
+        """Queue one on-screen keyboard key (a character, "\b" or "\n")."""
+        if self.buzzer:
+            self.buzzer.play("key")
+        self._keys.put(("char", char))
+
     def _key_loop(self) -> None:
         while True:
             key = self._keys.get()
             try:
-                screen = self.controller.handle_key(key)
+                if isinstance(key, tuple):
+                    screen = self.controller.handle_char(key[1])
+                else:
+                    screen = self.controller.handle_key(key)
             except Exception as exc:
                 log.exception("key %s failed", key)
                 screen = Screen("Something went wrong", [str(exc)], "error", hold_seconds=6)
@@ -149,7 +163,14 @@ class WebKiosk:
 
 def screen_json(screen: Screen) -> dict:
     return {"title": screen.title, "lines": screen.lines, "tone": screen.tone,
-            "entry": screen.entry}
+            "entry": screen.entry, "keyboard": screen.keyboard}
+
+
+def _typed(char: str) -> str | None:
+    """POST /type's char -> what handle_char takes, or None if it isn't one key."""
+    if char in ("back", "done"):
+        return "\b" if char == "back" else "\n"
+    return char if len(char) == 1 and char.isprintable() else None
 
 
 def make_handler(kiosk: WebKiosk):
@@ -194,6 +215,9 @@ def make_handler(kiosk: WebKiosk):
             path = urlparse(self.path).path
             if path == "/key" and form.get("key", "").upper() in KEYS:
                 kiosk.press(form["key"].upper())
+                self._json({"ok": True})
+            elif path == "/type" and _typed(form.get("char", "")):
+                kiosk.type_char(_typed(form["char"]))
                 self._json({"ok": True})
             elif path == "/tap" and kiosk.simulated_reader is not None and form.get("uid"):
                 kiosk.simulated_reader.tap(form["uid"])

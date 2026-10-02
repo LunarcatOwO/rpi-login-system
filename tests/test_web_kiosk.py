@@ -67,3 +67,20 @@ def test_other_web_pages_cant_press_keys(kiosk):
     with pytest.raises(urllib.error.HTTPError) as err:
         post(base + "/key", "key=Z")
     assert err.value.code == 400
+
+
+def test_screen_keyboard_types_a_name(kiosk):
+    kiosk, users, base = kiosk
+    users.set_admin_pin("2468")
+    q = kiosk.listen()
+    for key in "*2468#73":
+        post(base + "/key", f"key={key}")
+    assert next_screen(q, "New Sustainability member's name")["keyboard"]
+    for char in ["r", "i", "v", "back", "x"]:
+        post(base + "/type", f"char={char}")
+    post(base + "/type", "char=done")
+    assert next_screen(q, "Added Rix")["keyboard"] is False
+    assert users.get_by_code("C001")["username"] == "Rix"
+    with pytest.raises(urllib.error.HTTPError) as err:
+        post(base + "/type", "char=toolong")
+    assert err.value.code == 400

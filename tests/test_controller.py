@@ -206,3 +206,52 @@ def test_admin_changes_someones_team(services):
     assert users.get_by_code("D001")["username"] == "taylor"
     press(controller, "*2468#6D001")
     assert press(controller, "*").title == "Change team: user ID"   # back a step
+
+
+def test_admin_adds_a_user_on_the_screen_keyboard(services):
+    controller, reader, users = make(services)
+    users.set_admin_pin("2468")
+    press(controller, "*2468#")
+    screen = press(controller, "7")
+    assert screen.title == "Add a user: team" and "2  Impact" in screen.lines
+    screen = press(controller, "2")
+    assert screen.keyboard and screen.entry == "_"
+    for char in " sam  le\bee":
+        screen = controller.handle_char(char)
+    assert screen.entry == "Sam Lee_"
+    assert press(controller, "5").entry == "Sam Lee_"      # keypad digits don't type
+    screen = controller.handle_char("\n")
+    assert screen.title == "Added Sam Lee" and "Their ID is B001." in screen.lines
+    assert not screen.keyboard
+    screen = tap(controller, reader, "04CC")
+    assert screen.title == "Card enrolled"
+    assert controller.handle_card("04CC").title == "Welcome, Sam Lee!"
+
+
+def test_adding_a_user_without_a_card_and_name_errors(services):
+    controller, _reader, users = make(services)
+    users.set_admin_pin("2468")
+    users.add("Sam Lee", "A")
+    press(controller, "*2468#71")
+    assert controller.handle_char("\n").lines[0] == "Type their name first."
+    for char in "sam lee\n":
+        screen = controller.handle_char(char)
+    assert screen.tone == "error" and screen.keyboard      # name taken: keep typing
+    assert press(controller, "*" * 8).title == "Add a user: team"   # delete, then back
+    press(controller, "1")
+    for char in "alex\n":
+        controller.handle_char(char)
+    screen = press(controller, "*")
+    assert screen.title == "Alex added" and "Their ID is A002." in screen.lines
+    assert controller.state == kc.IDLE
+    assert controller.handle_char("x") is None             # ignored outside the name screen
+
+
+def test_admin_closes_the_kiosk_app(services):
+    controller, _reader, users = make(services)
+    users.set_admin_pin("2468")
+    screen = press(controller, "*2468#8")
+    assert screen.title == "Close the kiosk app?" and not screen.close_app
+    assert press(controller, "*").title == "Admin menu"
+    screen = press(controller, "8#")
+    assert screen.close_app and controller.state == kc.IDLE

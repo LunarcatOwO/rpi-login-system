@@ -15,6 +15,11 @@ Keypad (Da Vinci Kit 4x4), with the default teams:
                 From the idle screen, * opens the admin menu (asks for the PIN).
     #           Enter, once you've started typing.
 
+Adding a user (admin menu 7) needs letters, so the name is typed on an
+on-screen keyboard (or a USB keyboard); those keys arrive via handle_char.
+Admin menu 8 closes the kiosk app, back to the Pi's desktop, for when there's
+no keyboard to press Ctrl+Alt+Q on.
+
 A card imported from the legacy system belongs to a user with a U ID (no
 team yet). On its first scan the person picks their own team, which gives
 them their real ID, and then they're signed in. Choosing Mentors needs the
@@ -55,12 +60,16 @@ ADJUST_ID = "adjust_id"
 ADJUST_AMOUNT = "adjust_amount"
 MOVE_ID = "move_id"           # admin: whose team to change
 PICK_TEAM = "pick_team"       # a team is chosen (legacy card's owner, or admin via MOVE_ID)
+NEW_TEAM = "new_team"         # admin adding a user: which team
+NEW_NAME = "new_name"         # admin adding a user: their name, on the screen keyboard
+CLOSE_CONFIRM = "close_confirm"
 
 ID_STATES = (USER_ID, ENROLL_ID, ADJUST_ID, MOVE_ID)
 PIN_STATES = (USER_PIN, ADMIN_PIN)
 
 MAX_PIN = 8
 MAX_AMOUNT = 4                # HHMM, up to 99h 59m per adjustment
+MAX_NAME = 40
 MAX_PIN_FAILURES = 5
 LOCKOUT_SECONDS = 60
 
@@ -71,7 +80,9 @@ ADMIN_MENU_LINES = [
     "4  Sign everyone out",
     "5  System info",
     "6  Change someone's team",
-    "*  Exit",
+    "7  Add a user",
+    "8  Close the kiosk app",
+    "*  Leave this menu",
 ]
 
 
@@ -84,6 +95,8 @@ class Screen:
     hold_seconds: float | None = None   # return to idle after this long
     refresh_leaderboard: bool = False   # also refreshes the "here now" list
     sound: str | None = None            # buzzer pattern; by default from the tone
+    keyboard: bool = False              # show the on-screen letter keyboard
+    close_app: bool = False             # the window should close itself
 
     @property
     def buzz(self) -> str | None:
@@ -251,6 +264,9 @@ class KioskController:
                 ADMIN_MENU: self._admin_choice,
                 ADJUST_AMOUNT: self._amount_key,
                 PICK_TEAM: self._pick_team_key,
+                NEW_TEAM: self._new_team_key,
+                NEW_NAME: self._new_name_key,
+                CLOSE_CONFIRM: self._close_key,
             }.get(self.state)
             if handler:
                 return handler(key)
@@ -259,6 +275,26 @@ class KioskController:
             if self.state in PIN_STATES:
                 return self._pin_key(key)
             return None  # ENROLL_SCAN waits for a card
+
+    def handle_char(self, char: str) -> Screen | None:
+        """A key from the on-screen (or USB) keyboard while typing a name.
+
+        Letters and the like are typed; "\b" deletes one and "\n" is Done.
+        """
+        with self._lock:
+            if self.state != NEW_NAME:
+                return None
+            self._last_input = self.monotonic()
+            if char == "\n":
+                return self._new_name_key("#")
+            if char == "\b":
+                self.buffer = self.buffer[:-1]
+            elif len(char) == 1 and char.isprintable() and len(self.buffer) < MAX_NAME:
+                if not self.buffer or self.buffer[-1] in " -":
+                    char = char.upper()     # Capital at the start of each name
+                if char != " " or (self.buffer and not self.buffer.endswith(" ")):
+                    self.buffer += char
+            return self._redraw()
 
     def check_timeout(self) -> Screen | None:
         """Drop half-typed keypad input after a period of inactivity."""
@@ -289,7 +325,17 @@ class KioskController:
         if self.state == ADMIN_PIN and self.context.get("legacy"):
             self.state = PICK_TEAM      # back from the mentor check to the team list
             return self._redraw()
-        if self.state in (ENROLL_ID, ADJUST_ID, ENROLL_SCAN, MOVE_ID):
+        if self.state == ENROLL_SCAN and self.context.get("new"):
+            user = self.context["user"]
+            self._reset()
+            return self._result(f"{user['username']} added", [
+                f"Their ID is {user['code']}.",
+                "No card yet: enroll one later with admin menu 1.",
+            ], "success", refresh=True)
+        if self.state == NEW_NAME:
+            self.state = NEW_TEAM
+            return self._redraw()
+        if self.state in (ENROLL_ID, ADJUST_ID, ENROLL_SCAN, MOVE_ID, NEW_TEAM, CLOSE_CONFIRM):
             self.state, self.context = ADMIN_MENU, {}
             return self._redraw()
         if self.state == ADJUST_AMOUNT:
@@ -451,6 +497,12 @@ class KioskController:
         if key == "6":
             self.state = MOVE_ID
             return self._redraw()
+        if key == "7":
+            self.state = NEW_TEAM
+            return self._redraw()
+        if key == "8":
+            self.state = CLOSE_CONFIRM
+            return self._redraw()
         if key == "5":
             reader = self.reader.firmware_version() if self.reader else "no reader"
             self.context["viewing"] = True
@@ -458,6 +510,38 @@ class KioskController:
                                           f"IP: {local_ip()}", f"NFC: {reader}",
                                           "", "*  Back"], "info")
         return None
+
+    def _new_team_key(self, key: str) -> Screen:
+        section = self.team_choices.get(key) or self.section_keys.get(key)
+        if not section:
+            return self._redraw()
+        self.state, self.buffer = NEW_NAME, ""
+        self.context = {"section": section}
+        return self._redraw()
+
+    def _new_name_key(self, key: str) -> Screen:
+        if key != "#":
+            return self._redraw()
+        if not self.buffer.strip():
+            return self._error_keep_state("Type their name first.")
+        try:
+            user = self.users.add(self.buffer.strip(), self.context["section"])
+        except UserError as exc:
+            return self._error_keep_state(str(exc))
+        self.state, self.buffer = ENROLL_SCAN, ""
+        self.context = {"user": user, "new": True}
+        screen = self._redraw()
+        screen.tone, screen.sound = "success", "success"
+        return screen
+
+    def _close_key(self, key: str) -> Screen:
+        if key != "#":
+            return self._redraw()
+        self._reset()
+        return Screen("Closing the kiosk", [
+            "To start it again, restart the Pi,",
+            "or open NFC Kiosk from the desktop menu.",
+        ], "warning", close_app=True)
 
     def _amount_key(self, key: str) -> Screen:
         if key.isdigit():
@@ -551,6 +635,30 @@ class KioskController:
                 "Admin: type the PIN, then #",
                 "*  back to the teams",
             ], "prompt", entry="•" * len(self.buffer))
+        if self.state == NEW_TEAM:
+            choices = [f"{key}  {self.users.team_name(letter)}"
+                       for key, letter in self.team_choices.items()]
+            return Screen("Add a user: team", [*choices, "*  back"], "prompt")
+        if self.state == NEW_NAME:
+            team = self.users.team_name(self.context["section"])
+            return Screen(f"New {team} member's name", [
+                "Type it on the keyboard below, then Done.",
+                "Keypad: #  done     *  delete / back",
+            ], "prompt", entry=self.buffer + "_", keyboard=True)
+        if self.state == CLOSE_CONFIRM:
+            return Screen("Close the kiosk app?", [
+                "The Pi's desktop will show instead.",
+                "Card scans won't be counted until it's open again.",
+                "",
+                "#  close it        *  back",
+            ], "warning")
+        if self.state == ENROLL_SCAN and self.context.get("new"):
+            user = self.context["user"]
+            return Screen(f"Added {user['username']}", [
+                f"Their ID is {user['code']}.",
+                "Tap their card now to enroll it.",
+                "*  skip (no card for now)",
+            ], "prompt")
         if self.state == ENROLL_SCAN:
             user = self.context["user"]
             return Screen("Tap the new card",

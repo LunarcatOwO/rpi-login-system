@@ -228,3 +228,18 @@ def test_read_blank_card():
     reader.read_uid()
     with pytest.raises(TagReadError, match="no card info"):
         reader.read_ndef()
+
+
+def test_firmware_is_asked_once_so_system_info_never_touches_the_bus():
+    class Counting(FakePN532):
+        asked = 0
+
+        @property
+        def firmware_version(self):
+            Counting.asked += 1
+            return (0x32, 1, 6, 7)
+
+    reader = PN532Reader(pn532=Counting(bytes.fromhex("22DD51C1")))
+    assert reader.firmware_version() == "PN532 firmware 1.6"
+    assert reader.firmware_version() == "PN532 firmware 1.6"
+    assert Counting.asked == 1

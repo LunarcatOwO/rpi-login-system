@@ -48,6 +48,9 @@ COLORS = {
 # Computer keyboard -> keypad, for simulated mode (and handy with a USB keyboard).
 KEY_MAP = {"Return": "#", "KP_Enter": "#", "BackSpace": "*", "Escape": "*"}
 
+# On-screen keyboard for typing a new user's name (admin menu 7).
+KEYBOARD_ROWS = ["QWERTYUIOP", "ASDFGHJKL'", "ZXCVBNM-."]
+
 HERE_REFRESH_MS = 5_000
 BOARD_REFRESH_MS = 60_000
 
@@ -65,6 +68,7 @@ class KioskWindow:
         self._tab = "here"
         self._here: list[dict] = []
         self._board: list = []
+        self._keyboard_on = False
         threading.Thread(target=self._key_loop, daemon=True, name="keys").start()
 
         root.title("NFC Sign In")
@@ -108,6 +112,7 @@ class KioskWindow:
         side = tk.Frame(body, bg=COLORS["panel"], width=300)
         side.pack(side="right", fill="y", padx=(0, 10), pady=10)
         side.pack_propagate(False)
+        self.side = side
         tabs = tk.Frame(side, bg=COLORS["panel"])
         tabs.pack(fill="x")
         self.here_tab = tk.Button(tabs, command=lambda: self._select_tab("here"))
@@ -123,6 +128,7 @@ class KioskWindow:
         self.side_label.pack(fill="both", expand=True, padx=10, pady=8)
 
         status = tk.Frame(body, bg=COLORS["bg"])
+        self.status_frame = status
         status.pack(side="left", fill="both", expand=True, padx=16, pady=12)
         self.title_label = tk.Label(status, font=big, anchor="w", justify="left",
                                     bg=COLORS["bg"], wraplength=450)
@@ -130,6 +136,7 @@ class KioskWindow:
         self.lines_label = tk.Label(status, font=normal, anchor="nw", justify="left",
                                     fg=COLORS["text"], bg=COLORS["bg"], wraplength=450)
         self.lines_label.pack(fill="both", expand=True, pady=(10, 0))
+        self.keyboard = self._build_keyboard(status)
 
         footer = tk.Frame(self.root, bg=COLORS["panel"])
         footer.pack(fill="x")
@@ -146,6 +153,38 @@ class KioskWindow:
         self._select_tab("here")
         if simulated_reader is not None:
             self._build_simulator(simulated_reader)
+
+    def _build_keyboard(self, parent) -> tk.Frame:
+        frame = tk.Frame(parent, bg=COLORS["bg"])
+        rows = [list(r) for r in KEYBOARD_ROWS] + [["Space", "Delete", "Done"]]
+        for row in rows:
+            line = tk.Frame(frame, bg=COLORS["bg"])
+            line.pack(fill="x", pady=2)
+            for label in row:
+                char = {"Space": " ", "Delete": "\b", "Done": "\n"}.get(label, label.lower())
+                tk.Button(line, text=label, font=("DejaVu Sans", 16, "bold"),
+                          relief="flat", bd=0, highlightthickness=0, pady=6,
+                          bg=COLORS["success"] if label == "Done" else COLORS["tab"],
+                          fg=COLORS["bg"] if label == "Done" else COLORS["text"],
+                          activebackground=COLORS["panel"], activeforeground=COLORS["text"],
+                          command=lambda c=char: self.type_char(c),
+                          ).pack(side="left", fill="x", expand=True, padx=2)
+        return frame
+
+    def _show_keyboard(self, on: bool) -> None:
+        # The keyboard takes the side panel's room, so the keys are big enough to hit.
+        if on == self._keyboard_on:
+            return
+        self._keyboard_on = on
+        if on:
+            self.side.pack_forget()
+            self.keyboard.pack(fill="x", side="bottom", pady=(6, 0))
+            self.lines_label.config(wraplength=760)
+        else:
+            self.keyboard.pack_forget()
+            self.side.pack(side="right", fill="y", padx=(0, 10), pady=10,
+                           before=self.status_frame)
+            self.lines_label.config(wraplength=450)
 
     def _build_simulator(self, reader) -> None:
         sim = tk.Frame(self.root, bg="#2a1f00")
@@ -181,6 +220,9 @@ class KioskWindow:
         self.title_label.config(text=screen.title, fg=COLORS.get(screen.tone, COLORS["text"]))
         self.lines_label.config(text="\n".join(screen.lines))
         self.entry_label.config(text=f"> {screen.entry}" if screen.entry is not None else "")
+        self._show_keyboard(screen.keyboard)
+        if screen.close_app:
+            self.root.after(2500, self.root.destroy)
         if self._revert_job:
             self.root.after_cancel(self._revert_job)
             self._revert_job = None
@@ -274,13 +316,22 @@ class KioskWindow:
             self.buzzer.play("key")
         self._keys.put(key)
 
+    def type_char(self, char: str) -> None:
+        """Queue one on-screen keyboard key (a character, "\b" or "\n")."""
+        if self.buzzer:
+            self.buzzer.play("key")
+        self._keys.put(("char", char))
+
     def _key_loop(self) -> None:
         # One worker so keys are handled in order, off the UI thread (PIN
         # checks and database calls would otherwise freeze the screen).
         while True:
             key = self._keys.get()
             try:
-                screen = self.controller.handle_key(key)
+                if isinstance(key, tuple):
+                    screen = self.controller.handle_char(key[1])
+                else:
+                    screen = self.controller.handle_key(key)
             except Exception as exc:
                 log.exception("key %s failed", key)
                 screen = Screen("Something went wrong", [str(exc)], "error", hold_seconds=6)
@@ -289,6 +340,13 @@ class KioskWindow:
 
     def _on_keyboard(self, event) -> None:
         if getattr(self, "_sim_entry", None) is not None and event.widget is self._sim_entry:
+            return
+        if self._keyboard_on and event.keysym != "Escape":
+            # A USB keyboard types the name too.
+            char = {"BackSpace": "\b", "Return": "\n", "KP_Enter": "\n"}.get(event.keysym,
+                                                                             event.char)
+            if char:
+                self.type_char(char)
             return
         key = KEY_MAP.get(event.keysym) or event.char.upper()
         # Typing a section letter (e.g. E) presses that section's keypad key (#).
