@@ -30,6 +30,9 @@ keys on it.
 
 ## Install on the Pi (Raspberry Pi OS 64-bit)
 
+The easy way: `bash scripts/setup-pi.sh` sets up the whole Pi, app included
+(see docs/setup.md). Or by hand:
+
 1. Set up the kiosk as usual: `bash scripts/install.sh` (database, venv,
    `config.toml`).
 2. Get `nfc-kiosk-0.2.0-arm64.deb`: build it (below) or copy a ready one.
