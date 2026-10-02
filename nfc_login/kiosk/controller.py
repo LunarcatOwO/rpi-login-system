@@ -531,8 +531,7 @@ class KioskController:
         if self.state == ADMIN_PIN and self.context.get("legacy"):
             user = self.context["user"]
             return Screen(f"Welcome, {user['username']}!", [
-                "Your card is from the old system, so an admin",
-                "needs to choose your team first.",
+                "Please choose your team before signing in.",
                 "",
                 "Admin: type the PIN, then #",
                 "*  cancel (you won't be signed in)",
