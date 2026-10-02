@@ -29,7 +29,6 @@ from datetime import datetime
 
 from nfc_login.kiosk.controller import KioskController, Screen
 from nfc_login.services import timefmt
-from nfc_login.services.leaderboard import team_totals
 
 log = logging.getLogger(__name__)
 
@@ -51,7 +50,6 @@ KEY_MAP = {"Return": "#", "KP_Enter": "#", "BackSpace": "*", "Escape": "*"}
 
 HERE_REFRESH_MS = 5_000
 BOARD_REFRESH_MS = 60_000
-TOTALS_ROTATE_MS = 5_000
 
 
 class KioskWindow:
@@ -67,8 +65,6 @@ class KioskWindow:
         self._tab = "here"
         self._here: list[dict] = []
         self._board: list = []
-        self._totals: list[str] = []      # bottom bar: season total, then each team
-        self._totals_index = 0
         threading.Thread(target=self._key_loop, daemon=True, name="keys").start()
 
         root.title("NFC Sign In")
@@ -88,7 +84,6 @@ class KioskWindow:
         self._check_timeout()
         self._periodic_here()
         self._periodic_board()
-        self.root.after(TOTALS_ROTATE_MS, self._rotate_totals)
 
     # ------------------------------------------------------------ layout
 
@@ -136,13 +131,8 @@ class KioskWindow:
                                     fg=COLORS["text"], bg=COLORS["bg"], wraplength=450)
         self.lines_label.pack(fill="both", expand=True, pady=(10, 0))
 
-        # Bottom bar: everyone's hours this season, then each team's, in turn.
-        self.totals_label = tk.Label(self.root, font=("DejaVu Sans", 13, "bold"),
-                                     fg=COLORS["success"], bg=COLORS["tab"], pady=3)
-        self.totals_label.pack(side="bottom", fill="x")
-
         footer = tk.Frame(self.root, bg=COLORS["panel"])
-        footer.pack(side="bottom", fill="x")
+        footer.pack(fill="x")
         self.entry_label = tk.Label(footer, font=("DejaVu Sans Mono", 18, "bold"),
                                     fg=COLORS["prompt"], bg=COLORS["panel"])
         self.entry_label.pack(side="left", padx=12, pady=6)
@@ -213,10 +203,8 @@ class KioskWindow:
                 self.events.put(("here", here))
                 if board:
                     season = attendance.active_season_name()
-                    everyone = attendance.leaderboard()
-                    entries = everyone[:self.cfg["leaderboard_size"]]
+                    entries = attendance.leaderboard(self.cfg["leaderboard_size"])
                     self.events.put(("board", (season, entries)))
-                    self.events.put(("totals", self._totals_lines(season, everyone)))
             except Exception:
                 log.exception("refresh failed")
         threading.Thread(target=work, daemon=True).start()
@@ -237,27 +225,6 @@ class KioskWindow:
                     f"{timefmt.format_duration(e.total_seconds):>7}" for e in self._board]
             self.side_label.config(text="\n".join(rows) or "No one yet")
 
-    def _totals_lines(self, season: str, entries: list) -> list[str]:
-        users = self.controller.users
-        total, teams = team_totals(entries)
-        lines = [f"Season {season} total, everyone together: {timefmt.format_duration(total)}"]
-        for s in users.sections:
-            lines.append(f"{s['name']}: {timefmt.format_duration(teams.pop(s['letter'], 0))}")
-        for letter, seconds in teams.items():     # e.g. imported people with no team yet
-            if seconds:
-                lines.append(f"{users.team_name(letter)}: {timefmt.format_duration(seconds)}")
-        return lines
-
-    def _show_totals(self) -> None:
-        if self._totals:
-            self._totals_index %= len(self._totals)
-            self.totals_label.config(text=self._totals[self._totals_index])
-
-    def _rotate_totals(self) -> None:
-        self._totals_index += 1
-        self._show_totals()
-        self.root.after(TOTALS_ROTATE_MS, self._rotate_totals)
-
     def _team(self, section: str) -> str:
         return f"{self.controller.users.team_name(section, short=True)[:8]:<8}"
 
@@ -272,9 +239,6 @@ class KioskWindow:
                 elif kind == "here":
                     self._here = payload
                     self._render_side()
-                elif kind == "totals":
-                    self._totals = payload
-                    self._show_totals()
                 elif kind == "board":
                     season, self._board = payload
                     self.season_label.config(text=f"Season {season}")
