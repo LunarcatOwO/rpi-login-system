@@ -147,7 +147,8 @@ class KioskController:
                  "No card? Type your ID on the keypad:", *rows]
         if self.mentors:
             lines.append("Mentors: numbers only.")
-        return Screen("Tap your card", lines + ["* = admin"], tone="info")
+        lines += ["", "#  enter        *  backspace", "*  on this screen: admin"]
+        return Screen("Tap your card", lines, tone="info")
 
     def _result(self, title, lines, tone, refresh=False) -> Screen:
         return Screen(title, lines, tone, hold_seconds=self.result_seconds,
