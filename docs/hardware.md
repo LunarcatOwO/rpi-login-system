@@ -167,7 +167,7 @@ with `python -m nfc_login.admin buzzer` (or `buzzer sign_in error`).
 | `sign_out` | DAA-da-da (180, 50, 70, 50, 70) | Signed out |
 | `success` | da-DAA (70, 50, 180) | Card enrolled, hours saved |
 | `ignored` | one blip (60) | Same card tapped again within 10 s |
-| `attention` | dit-dit-dit, dit-dit-dit | Old card: an admin picks their team |
+| `attention` | dit-dit-dit, dit-dit-dit | Old card: pick your team |
 | `admin` | seven quick ticks (40 ms each) | Admin menu opened |
 | `warning` | two even beeps (150, 120, 150) | Warnings (e.g. no admin PIN set) |
 | `error` | two long buzzes (400, 100, 400) | Unknown card, wrong PIN, other errors |

@@ -31,42 +31,33 @@ Options:
 
 | Option | |
 |---|---|
-| `--sections A` | Put everyone straight onto team A instead of an admin choosing at their first scan. `--sections A,B` fills A001–A999, then B. |
+| `--sections A` | Put everyone straight onto team A instead of them choosing at their first scan. `--sections A,B` fills A001–A999, then B. |
 | `--dry-run` | Print the summary and the new IDs without saving |
 
 It prints a table of old ID → new ID → name.
 
-### An admin picks the team on the first scan
+### Old cards pick their team on the first scan
 
 The old system only knew each card, not which team its owner is on. So by
 default imported people get a temporary **U** ID (U001, U002...), meaning "no
 team yet". The first time someone taps their old card, the kiosk beeps
-dit-dit-dit and asks for an admin:
+dit-dit-dit and asks them to pick:
 
 ```
 Welcome, Alex!
 Please choose your team before signing in.
-
-Admin: type the PIN, then #
-*  cancel (you won't be signed in)
-```
-
-After the admin PIN, the admin picks the team:
-
-```
-Team for Alex
-Currently: No team yet (U004)
 1  Robot
 2  Impact
 3  Sustainability
 4  Strategy
-5  Mentors
-*  cancel (they won't be signed in)
+5  Mentors  (needs an admin)
+*  cancel (you won't be signed in)
 ```
 
-That gives them the next free ID on that team (e.g. C004, or 004 for a
-mentor), shows it on screen, and signs them in or out as usual. It only
-happens once. A wrong PIN, `*` or walking away leaves them unsigned and asks
+Pressing 1-4 gives them the next free ID on that team (e.g. C004), shows it
+on screen, and signs them in or out as usual. Mentors need the admin PIN
+first; `*` there goes back to the list. Once the team is set it never asks
+again. `*`, a wrong admin PIN or walking away leaves them unsigned and asks
 again next time.
 
 An admin can also place someone without a scan: admin menu → 6 on the kiosk,
@@ -78,7 +69,7 @@ used as a team letter in `config.toml`.
 
 | Legacy | Becomes |
 |---|---|
-| `users.name`, `userId` | A user with a U ID until an admin picks their team (or the next free ID in `--sections`). The old `userId` is saved in `users.legacy_id`. |
+| `users.name`, `userId` | A user with a U ID until they pick their team (or the next free ID in `--sections`). The old `userId` is saved in `users.legacy_id`. |
 | `users.rfidKey` | Their card (see below) |
 | `users.hours` | An adjustment in the **current** season, reason "Imported from legacy system" |
 | `users.lastLogin` / `lastLogout` | Last sign-in / sign-out. People logged in at import time stay signed in, and their time counts when they sign out here. |
