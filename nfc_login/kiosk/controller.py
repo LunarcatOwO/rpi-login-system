@@ -146,7 +146,7 @@ class KioskController:
         lines = ["Hold your card on the reader to sign in or out.", "",
                  "No card? Type your ID on the keypad:", *rows]
         if self.mentors:
-            lines.append("Mentors: just type your number.")
+            lines.append("Mentors: numbers only.")
         return Screen("Tap your card", lines + ["* = admin"], tone="info")
 
     def _result(self, title, lines, tone, refresh=False) -> Screen:
@@ -563,7 +563,7 @@ class KioskController:
             shown = self.buffer + "_" * (length - len(self.buffer))
             hint = "Team letter, then the number."
             if self.mentors:
-                hint += " Mentors: just the number."
+                hint += " Mentors: numbers only."
             return Screen(title, [hint, "# = enter early,  * = back"], "prompt", entry=shown)
         if self.state in PIN_STATES:
             title = "Admin PIN" if self.state == ADMIN_PIN else "Your PIN"
