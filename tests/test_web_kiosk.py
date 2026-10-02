@@ -56,8 +56,6 @@ def test_keys_and_taps_reach_the_kiosk(kiosk):
     side = json.load(urllib.request.urlopen(base + "/api/kiosk"))
     assert side["here"][0]["team"] == "Impact" and side["simulated"]
     assert [k["key"] for k in side["keys"]] == list("ABCD") and side["mentors"]
-    assert [t["name"] for t in side["totals"]] == [
-        "everyone", "Robot", "Impact", "Sustainability", "Strategy", "Mentors"]
 
 
 def test_other_web_pages_cant_press_keys(kiosk):

@@ -40,8 +40,6 @@ td.r { text-align: right; padding: 0; }
 footer { height: 36px; justify-content: space-between; gap: 12px; }
 footer .entry { font: bold 22px var(--mono); color: var(--prompt); white-space: nowrap; }
 footer .hint { color: var(--muted); font-size: 13px; white-space: pre; overflow: hidden; }
-.totals { background: var(--tab); color: var(--success); font-weight: bold; font-size: 16px;
-  text-align: center; padding: 4px 0; }
 .sim { display: none; background: #2a1f00; color: #ffd27a; padding: 4px 8px; gap: 6px;
   align-items: center; font-size: 13px; }
 .sim.on { display: flex; }
@@ -74,7 +72,6 @@ footer .hint { color: var(--muted); font-size: 13px; white-space: pre; overflow:
   <span class="entry" id="entry"></span>
   <span class="hint" id="hint"></span>
 </footer>
-<div class="totals" id="totals"></div>
 <div class="sim" id="sim">
   SIMULATOR card UID: <input id="uid" value="04A1B2C3D4E5F6">
   <button id="tap">Tap card</button> Enter=#  Backspace/Esc=*
@@ -84,7 +81,7 @@ footer .hint { color: var(--muted); font-size: 13px; white-space: pre; overflow:
 <script>
 const $ = id => document.getElementById(id);
 const TONES = ["info", "success", "warning", "error", "prompt"];
-let tab = "here", side = null, totalsIndex = 0;
+let tab = "here", side = null;
 
 if (new URLSearchParams(location.search).has("kiosk")) document.body.classList.add("kiosk");
 
@@ -146,7 +143,6 @@ async function loadSide() {
       (side.mentors ? ", mentors just the number" : "") + "    * admin";
     $("sim").classList.toggle("on", side.simulated);
     renderSide();
-    showTotals();
   } catch (e) { /* the event stream shows the offline notice */ }
 }
 
@@ -172,16 +168,6 @@ function connect() {
   };
   events.onerror = () => $("offline").classList.add("on");   // EventSource retries by itself
 }
-
-// Bottom bar: everyone's hours this season, then each team's, every 5 seconds.
-function showTotals() {
-  if (!side || !side.totals.length) return;
-  totalsIndex %= side.totals.length;
-  const t = side.totals[totalsIndex];
-  $("totals").textContent = t.name === "everyone"
-    ? `Season ${side.season} total, everyone together: ${t.time}` : `${t.name}: ${t.time}`;
-}
-setInterval(() => { totalsIndex++; showTotals(); }, 5000);
 
 function tick() { $("clock").textContent = new Date().toLocaleTimeString("en-GB"); }
 tick();
