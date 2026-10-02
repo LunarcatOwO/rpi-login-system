@@ -163,3 +163,16 @@ def test_backspace_and_timeout(services):
     now[0] = 31
     assert controller.check_timeout() is not None
     assert controller.state == kc.IDLE
+
+
+def test_buzzer_patterns_for_kiosk_events(services, clock):
+    controller, reader, users = make(services)
+    users.enroll_tag("04AA", users.add("taylor", "C")["id"])
+    users.set_admin_pin("2468")
+    assert tap(controller, reader, "04AA").buzz == "sign_in"
+    assert tap(controller, reader, "04AA").buzz == "ignored"        # too soon
+    clock.advance(minutes=20)
+    assert tap(controller, reader, "04AA").buzz == "sign_out"
+    assert tap(controller, reader, "0BAD").buzz == "error"          # unknown card
+    controller.handle_key("*")
+    assert press(controller, "2468#").buzz == "admin"

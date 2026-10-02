@@ -73,6 +73,13 @@ class Screen:
     entry: str | None = None            # what's been typed (already masked for PINs)
     hold_seconds: float | None = None   # return to idle after this long
     refresh_leaderboard: bool = False   # also refreshes the "here now" list
+    sound: str | None = None            # buzzer pattern; by default from the tone
+
+    @property
+    def buzz(self) -> str | None:
+        """Buzzer pattern to play when this screen appears (see hardware/buzzer.py)."""
+        return self.sound or {"success": "success", "warning": "warning",
+                              "error": "error"}.get(self.tone)
 
 
 def parse_amount(digits: str) -> int:
@@ -163,16 +170,17 @@ class KioskController:
             f"Leaderboard rank: {_rank_text(stats)}",
         ]
         if action == SIGNED_IN:
-            title, tone = f"Welcome, {stats.username}!", "success"
+            title, tone, sound = f"Welcome, {stats.username}!", "success", "sign_in"
             lines = ["Signed in at " + timefmt.format_timestamp(stats.last_sign_in)]
         elif action == SIGNED_OUT:
-            title, tone = f"Goodbye, {stats.username}!", "success"
+            title, tone, sound = f"Goodbye, {stats.username}!", "success", "sign_out"
             lines = ["Signed out. This session: " + timefmt.format_duration(session_seconds)]
         else:
-            title, tone = stats.username, "warning"
+            title, tone, sound = stats.username, "warning", "ignored"
             lines = []
-        return self._result(title, notes + lines + summary, tone,
-                            refresh=action != IGNORED)
+        screen = self._result(title, notes + lines + summary, tone, refresh=action != IGNORED)
+        screen.sound = sound
+        return screen
 
     def _write_card(self, stats: UserStats) -> list[str]:
         """Write the latest stats onto the card still on the reader."""
@@ -344,7 +352,9 @@ class KioskController:
         if self.users.check_admin_pin(pin):
             self._pin_failures = 0
             self.state = ADMIN_MENU
-            return self._redraw()
+            screen = self._redraw()
+            screen.sound = "admin"
+            return screen
         return self._wrong_pin()
 
     def _user_sign(self, pin: str) -> Screen:

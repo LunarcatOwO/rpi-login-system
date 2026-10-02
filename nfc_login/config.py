@@ -40,6 +40,16 @@ DEFAULTS: dict = {
             "i2c_bus": 1,
             "address": 0x27,
         },
+        # Buzzer on GPIO 12 (physical pin 32), clear of the keypad and I2C pins.
+        "buzzer": {
+            "enabled": True,
+            "pin": 12,
+            "type": "active",          # "active" (beeps on its own) or "passive" (needs a tone)
+            "frequency": 2700,         # Hz, passive buzzers only
+            "active_low": False,       # True for modules that beep when the pin is LOW
+            "key_clicks": True,        # short click on every keypad press
+            "patterns": {},            # override a pattern, e.g. sign_in = [70, 50, 180]
+        },
         "keypad": {
             "enabled": True,
             # BCM pin numbers, matching the Da Vinci Kit "2.1.5 Keypad" lesson.

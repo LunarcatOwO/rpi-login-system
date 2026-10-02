@@ -16,12 +16,15 @@ log = logging.getLogger(__name__)
 
 
 class HeadlessKiosk:
-    def __init__(self, controller: KioskController, outputs: list):
+    def __init__(self, controller: KioskController, outputs: list, buzzer=None):
         self.controller = controller
         self.outputs = outputs          # objects with show(Screen)
+        self.buzzer = buzzer
         self._keys: queue.Queue = queue.Queue()
 
     def publish(self, screen: Screen) -> None:
+        if self.buzzer:
+            self.buzzer.play(screen.buzz)
         for output in self.outputs:
             try:
                 output.show(screen)
@@ -29,6 +32,8 @@ class HeadlessKiosk:
                 log.exception("display update failed")
 
     def press(self, key: str) -> None:
+        if self.buzzer:
+            self.buzzer.play("key")
         self._keys.put(key)
 
     def _key_loop(self) -> None:

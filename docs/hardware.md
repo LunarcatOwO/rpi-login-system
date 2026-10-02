@@ -11,13 +11,15 @@
 | 8x 10 kΩ resistors (optional, from the kit) | Pull-downs on the keypad columns |
 | NTAG215 cards, fobs or stickers | One per person |
 | microSD card (16 GB+), 5 V 3 A USB-C supply | |
+| Buzzer (active, 3.3-5 V) | Beeps a different rhythm for each event |
 | 3D printed shell | Holds everything |
 
 Coming from the old RC522 + 16x2 LCD setup? See [legacy.md](legacy.md).
 
 ## Pin map
 
-The keypad and NFC reader together use 12 GPIO header pins, none shared.
+The keypad, NFC reader and buzzer together use 13 GPIO header pins, none
+shared.
 
 ```
                  3V3  (1) (2)  5V
@@ -31,6 +33,9 @@ The keypad and NFC reader together use 12 GPIO header pins, none shared.
                  3V3 (17) (18) GPIO24 ─ Keypad R3
  Keypad C1 ─ GPIO10 (19) (20) GND
                 GPIO9 (21) (22) GPIO25 ─ Keypad R4
+                       ...
+                GPIO6 (31) (32) GPIO12 ─ Buzzer +  (or transistor base, see below)
+               GPIO13 (33) (34) GND    ─ Buzzer −
 ```
 
 PN532 VCC goes to **pin 1 (3.3 V)**.
@@ -93,6 +98,47 @@ If yours is one of those, move the keypad to free pins (e.g. GPIO 5, 6, 12,
 
 For a portrait or flipped screen, rotate it in Raspberry Pi OS (Screen
 Configuration) and the kiosk follows.
+
+### Buzzer
+
+An **active** buzzer (it beeps by itself when powered, like the one in the
+Da Vinci Kit) on **GPIO 12, physical pin 32**, with − to **pin 34 (GND)**.
+
+- A small 3.3 V buzzer or a buzzer module can go straight on the pin.
+- A bigger 5 V buzzer needs a transistor: the kit's S8050 NPN with a 1 kΩ
+  resistor from GPIO 12 to its base, emitter to GND, buzzer between 5 V and
+  the collector. (The kit's own buzzer lesson uses GPIO 17, which the keypad
+  already uses here, so wire it to GPIO 12 instead.)
+- Modules that beep when the pin goes LOW: set `active_low = true`.
+- A **passive** buzzer (needs a tone) also works: `type = "passive"`, with
+  `frequency` in Hz.
+
+Turn it off with `enabled = false` in `[hardware.buzzer]`, and the keypad
+clicks alone with `key_clicks = false`. The kiosk won't start if the pin is
+one the keypad or PN532 uses.
+
+Each event has its own rhythm (milliseconds on, off, on...). Hear them with
+the WAV files from `python3 scripts/buzzer_samples.py`, or on the real buzzer
+with `python -m nfc_login.admin buzzer` (or `buzzer sign_in error`).
+
+| Pattern | Rhythm | When |
+|---|---|---|
+| `sign_in` | da-da-DAA (70, 50, 70, 50, 180) | Signed in |
+| `sign_out` | DAA-da-da (180, 50, 70, 50, 70) | Signed out |
+| `success` | da-DAA (70, 50, 180) | Card enrolled, hours saved |
+| `ignored` | one blip (60) | Same card tapped again within 10 s |
+| `attention` | dit-dit-dit, dit-dit-dit | Something needs a person's attention |
+| `admin` | seven quick ticks (40 ms each) | Admin menu opened |
+| `warning` | two even beeps (150, 120, 150) | Warnings (e.g. no admin PIN set) |
+| `error` | two long buzzes (400, 100, 400) | Unknown card, wrong PIN, other errors |
+| `key` | click (25) | Every keypad press |
+
+Change any of them in `config.toml`:
+
+```toml
+[hardware.buzzer.patterns]
+sign_in = [100, 60, 250]
+```
 
 ## Cards
 
