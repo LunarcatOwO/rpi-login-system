@@ -45,8 +45,7 @@ dit-dit-dit and asks for an admin:
 
 ```
 Welcome, Alex!
-Your card is from the old system, so an admin
-needs to choose your team first.
+Please choose your team before signing in.
 
 Admin: type the PIN, then #
 *  cancel (you won't be signed in)
