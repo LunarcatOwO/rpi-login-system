@@ -40,8 +40,9 @@ class WebKiosk:
     """Holds the current screen and pushes changes to every open page."""
 
     def __init__(self, controller: KioskController, ui_config: dict, buzzer=None,
-                 simulated_reader=None):
+                 simulated_reader=None, updates=None):
         self.controller = controller
+        self.updates = updates
         self.cfg = ui_config
         self.buzzer = buzzer
         self.simulated_reader = simulated_reader
@@ -158,7 +159,8 @@ class WebKiosk:
         keys = [{"key": s["key"], "name": s["name"]} for s in users.sections if s["key"]]
         return {"season": att.active_season_name(), "here": here, "board": board,
                 "keys": keys, "mentors": self.controller.mentors,
-                "simulated": self.simulated_reader is not None}
+                "simulated": self.simulated_reader is not None,
+                "update": bool(self.updates and self.updates.available)}
 
 
 def screen_json(screen: Screen) -> dict:

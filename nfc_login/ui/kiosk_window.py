@@ -57,8 +57,9 @@ BOARD_REFRESH_MS = 60_000
 
 class KioskWindow:
     def __init__(self, root: tk.Tk, controller: KioskController, ui_config: dict,
-                 simulated_reader=None, buzzer=None):
+                 simulated_reader=None, buzzer=None, updates=None):
         self.root = root
+        self.updates = updates
         self.controller = controller
         self.cfg = ui_config
         self.events: queue.Queue = queue.Queue()
@@ -103,6 +104,9 @@ class KioskWindow:
         self.clock_label = tk.Label(header, font=("DejaVu Sans", 16), fg=COLORS["text"],
                                     bg=COLORS["panel"])
         self.clock_label.pack(side="right", padx=12)
+        # Shown (by the clock) only when a newer version is on GitHub.
+        self.update_label = tk.Label(header, text="\u2b07 Update", font=("DejaVu Sans", 12),
+                                     fg=COLORS["info"], bg=COLORS["panel"])
         self.season_label = tk.Label(header, font=normal, fg=COLORS["muted"], bg=COLORS["panel"])
         self.season_label.pack(side="right", padx=12)
 
@@ -302,6 +306,8 @@ class KioskWindow:
     def _periodic_here(self) -> None:
         # Live list: picks up sign-ins from the keypad, web admin and clean-up jobs too.
         self.refresh()
+        if self.updates and self.updates.available and not self.update_label.winfo_manager():
+            self.update_label.pack(side="right", before=self.season_label)
         self.root.after(HERE_REFRESH_MS, self._periodic_here)
 
     def _periodic_board(self) -> None:

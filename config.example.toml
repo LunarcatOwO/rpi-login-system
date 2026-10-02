@@ -50,6 +50,10 @@ site_url = "https://lunarcatowo.github.io/rpi-login-system/"
 min_scan_interval_seconds = 10  # ignore the same card again within this window
 max_session_hours = 12          # longer sessions are treated as a forgotten sign-out (0 credit)
 
+[updates]
+enabled = true                  # when online, check GitHub for a newer version
+check_hours = 6                 # and show a small download icon by the clock if there is one
+
 [ui]
 fullscreen = true
 width = 800
