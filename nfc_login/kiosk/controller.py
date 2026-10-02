@@ -12,6 +12,10 @@ Keypad (Da Vinci Kit 4x4), with the default four sections:
     *           backspace; on an empty entry, back / cancel.
                 From the idle screen, * opens the admin menu (asks for the PIN).
     #           Enter, once you've started typing.
+
+A card imported from the legacy system belongs to a user with a U ID (no
+group yet). Its first scan asks them to press their group's letter, which
+gives them their real ID, and then signs them in.
 """
 
 from __future__ import annotations
@@ -46,6 +50,7 @@ ENROLL_ID = "enroll_id"
 ENROLL_SCAN = "enroll_scan"
 ADJUST_ID = "adjust_id"
 ADJUST_AMOUNT = "adjust_amount"
+PICK_GROUP = "pick_group"     # legacy card's first scan: choose a section
 
 ID_STATES = (USER_ID, ENROLL_ID, ADJUST_ID)
 PIN_STATES = (USER_PIN, ADMIN_PIN)
@@ -148,6 +153,14 @@ class KioskController:
                 return self._enroll(uid)
             self._reset()
             try:
+                user = self.attendance.user_for_tag(uid)
+            except AttendanceError:
+                user = None  # scan_tag below reports why
+            if user and user["section"] == ids.UNSORTED:
+                self.state = PICK_GROUP
+                self.context = {"uid": uid, "user": user}
+                return self._redraw()
+            try:
                 result = self.attendance.scan_tag(uid)
             except AttendanceError as exc:
                 return self._result("Not signed in", [str(exc), f"Card {uid}"], "error")
@@ -214,6 +227,7 @@ class KioskController:
                 USER_MENU: self._user_menu_key,
                 ADMIN_MENU: self._admin_choice,
                 ADJUST_AMOUNT: self._amount_key,
+                PICK_GROUP: self._pick_group_key,
             }.get(self.state)
             if handler:
                 return handler(key)
@@ -435,11 +449,34 @@ class KioskController:
 
     # ------------------------------------------------------------ drawing
 
+    def _pick_group_key(self, key: str) -> Screen:
+        if key not in self.section_keys:
+            return self._redraw()
+        uid, user = self.context["uid"], self.context["user"]
+        self._reset()
+        try:
+            user = self.users.move(user["id"], self.section_keys[key])
+            result = self.attendance.scan_tag(uid)
+        except (UserError, AttendanceError) as exc:
+            return self._result("Not signed in", [str(exc)], "error")
+        # The card has usually left the reader by now; it's written on the next scan.
+        notes = [f"Your ID is now {user['code']}. Use it on the keypad.", ""] + result.notes
+        return self._scan_screen(result.action, result.stats, result.session_seconds, notes)
+
     def _redraw(self) -> Screen:
         if self.state == ADMIN_MENU:
             return Screen("Admin menu", list(ADMIN_MENU_LINES), "prompt")
         if self.state == USER_MENU:
             return self._user_menu_screen()
+        if self.state == PICK_GROUP:
+            user = self.context["user"]
+            choices = [f"{key}  {self.users.section_names[letter]}"
+                       for key, letter in self.section_keys.items()]
+            return Screen(f"Welcome, {user['username']}!", [
+                "Your card is from the old system. Which group are you in?",
+                "Press its letter on the keypad:",
+                "", *choices, "", "*  cancel (you won't be signed in)",
+            ], "prompt")
         if self.state == ENROLL_SCAN:
             user = self.context["user"]
             return Screen("Tap the new card",

@@ -103,6 +103,11 @@ def cmd_user_rename(s, args, config):
     print("Renamed.")
 
 
+def cmd_user_move(s, args, config):
+    user = s.users.move(s.users.get_by_code(args.code)["id"], args.section)
+    print(f"{user['username']} is now {user['code']}.")
+
+
 def cmd_user_set_pin(s, args, config):
     s.users.set_pin(args.code, None if args.clear else _ask_pin())
     print("PIN cleared." if args.clear else "PIN saved.")
@@ -259,8 +264,7 @@ def cmd_import_legacy(s, args, config):
                     "password": args.password, "database": args.database}
         if settings["password"] is None:
             settings["password"] = getpass.getpass(f"Password for {args.user}@{args.host}: ")
-    sections = [x.strip().upper() for x in args.sections.split(",")] if args.sections \
-        else [sec["letter"] for sec in config.sections]
+    sections = [x.strip().upper() for x in args.sections.split(",")] if args.sections else []
     unknown = set(sections) - set(s.users.section_names)
     if unknown:
         raise UserError(f"Unknown section(s): {', '.join(sorted(unknown))}")
@@ -327,6 +331,10 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("code", help="user ID, e.g. A07")
     c.add_argument("username")
     c.set_defaults(func=cmd_user_rename)
+    c = user.add_parser("move", help="put a user in another section (gives a new ID)")
+    c.add_argument("code", help="user ID, e.g. U03")
+    c.add_argument("section", help="section letter, e.g. B")
+    c.set_defaults(func=cmd_user_move)
     c = user.add_parser("set-pin", help="set or clear a user's keypad PIN")
     c.add_argument("code", help="user ID, e.g. A07")
     c.add_argument("--clear", action="store_true")
@@ -381,8 +389,9 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--user", default="php", help="legacy DB user (default: php, read-only)")
     c.add_argument("--password", help="asked for if not given")
     c.add_argument("--database", default="attendance")
-    c.add_argument("--sections", help="sections to put people in, in order, e.g. A or A,B "
-                                      "(default: all, filling A first)")
+    c.add_argument("--sections", help="put people straight into these sections, in order, "
+                                      "e.g. A or A,B (default: everyone gets a U ID and "
+                                      "picks a group on their first card scan)")
     c.add_argument("--dry-run", action="store_true", help="show what would happen, save nothing")
     c.set_defaults(func=cmd_import_legacy)
 

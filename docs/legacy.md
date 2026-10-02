@@ -31,17 +31,40 @@ Options:
 
 | Option | |
 |---|---|
-| `--sections A` | Put everyone in section A. `--sections A,B` fills A01–A99, then B. Default: all sections, starting at A. |
+| `--sections A` | Put everyone straight into section A instead of letting them choose. `--sections A,B` fills A01–A99, then B. |
 | `--dry-run` | Print the summary and the new IDs without saving |
 
-It prints a table of old ID → new ID → name, so you can tell people their
-new IDs.
+It prints a table of old ID → new ID → name.
+
+### Choosing a group on the first scan
+
+The old system only knew each card, not which group its owner is in. So by
+default imported people get a temporary **U** ID (U01, U02...), meaning "no
+group yet". The first time someone taps their old card, the kiosk asks:
+
+```
+Welcome, Alex!
+Your card is from the old system. Which group are you in?
+Press its letter on the keypad:
+A  Section A
+B  Section B
+...
+*  cancel (you won't be signed in)
+```
+
+Pressing a letter gives them the next free ID in that group (e.g. C04), shows
+it on screen, and signs them in or out as usual. They're only asked once.
+Pressing `*` or walking away leaves them unsigned and asks again next time.
+
+An admin can also place someone without a scan:
+`python -m nfc_login.admin user move U03 B`. U can't be used as a section
+letter in `config.toml`.
 
 ### What gets imported
 
 | Legacy | Becomes |
 |---|---|
-| `users.name`, `userId` | A user with the next free ID in the chosen section. The old `userId` is saved in `users.legacy_id`. |
+| `users.name`, `userId` | A user with a U ID until they pick a group (or the next free ID in `--sections`). The old `userId` is saved in `users.legacy_id`. |
 | `users.rfidKey` | Their card (see below) |
 | `users.hours` | An adjustment in the **current** season, reason "Imported from legacy system" |
 | `users.lastLogin` / `lastLogout` | Last sign-in / sign-out. People logged in at import time stay signed in, and their time counts when they sign out here. |

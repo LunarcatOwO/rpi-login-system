@@ -9,7 +9,9 @@ Legacy schema (github.com/aesom-e/attendance, database `attendance`):
 
 How it maps:
 
-    users.name, userId    -> a user in a section here (next free ID, e.g. A07);
+    users.name, userId    -> a user with a U ID (U07) who picks their group on
+                             their first card scan, or straight into the
+                             sections given with --sections;
                              the legacy userId is kept in users.legacy_id
     users.rfidKey         -> a card (see nfc_login.legacy.rfid)
     users.hours           -> an adjustment in the active season
@@ -101,10 +103,11 @@ def _seconds(hours) -> int:
 
 
 class LegacyImporter:
-    def __init__(self, db: Database, sections: list[str],
+    def __init__(self, db: Database, sections: list[str] | None = None,
                  clock: Callable[[], datetime] = timefmt.now):
         self.db = db
-        self.sections = [s.upper() for s in sections]
+        # Empty: everyone waits in the U holding section until their first scan.
+        self.sections = [s.upper() for s in sections or []]
         self.clock = clock
 
     def run(self, data: dict[str, list[dict]], dry_run: bool = False) -> ImportSummary:
@@ -225,6 +228,8 @@ class LegacyImporter:
 
     def _next_code(self, cur) -> tuple[str, int]:
         """Next free ID, filling the chosen sections in order (A01..A99, then B01...)."""
+        if not self.sections:
+            return ids.UNSORTED, repo.next_user_number(cur, ids.UNSORTED)
         for section in self.sections:
             number = repo.next_user_number(cur, section)
             if number <= ids.MAX_NUMBER:
