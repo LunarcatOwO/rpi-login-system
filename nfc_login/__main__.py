@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
+import sys
 
 from nfc_login.app import build_services
 from nfc_login.config import load_config
@@ -15,6 +17,7 @@ from nfc_login.hardware import create_buzzer, create_keypad, create_reader
 from nfc_login.hardware.keypad import KeypadPoller
 from nfc_login.kiosk.controller import KioskController
 from nfc_login.kiosk.nfc_worker import NfcWorker
+from nfc_login.services.system import SystemActions
 from nfc_login.services.updates import UpdateChecker
 from nfc_login.web.server import start_in_background
 
@@ -49,6 +52,12 @@ def main() -> None:
     logging.info("keypad: %s", "ready" if keypad else "off")
     logging.info("buzzer: %s", "ready" if buzzer else "off")
 
+    # The admin menu can always check for and install updates by hand; with
+    # [updates] enabled it also checks by itself every few hours.
+    updates = UpdateChecker(check_hours=config.updates["check_hours"], config_path=args.config)
+    if config.updates["enabled"]:
+        updates.start()
+
     controller = KioskController(
         services.attendance,
         services.users,
@@ -57,15 +66,17 @@ def main() -> None:
         write_tags=config.hardware["nfc"]["write_tags"],
         result_seconds=config.ui["result_seconds"],
         keypad_timeout=config.ui["keypad_timeout_seconds"],
+        seasons=services.seasons,
+        system=SystemActions(),
+        updates=updates,
+        # The desktop app (--web-ui) has a desktop menu entry; the Tk window doesn't.
+        reopen_hint=("To start it again, restart the Pi, or open NFC Kiosk from the "
+                     "desktop menu." if args.web_ui else "To start it again, restart the Pi."),
     )
 
     if not start_in_background(services, config):
         logging.info("live page: off")
     simulated = reader if config.hardware["mode"] == "simulated" else None
-    updates = None
-    if config.updates["enabled"]:
-        updates = UpdateChecker(check_hours=config.updates["check_hours"])
-        updates.start()
 
     if args.web_ui:
         run_web_ui(args.web_ui, controller, config, reader, keypad, buzzer, simulated, updates)
@@ -87,6 +98,14 @@ def main() -> None:
     finally:
         if keypad is not None:
             keypad.cleanup()
+    if getattr(kiosk, "restart_requested", False):
+        restart()
+
+
+def restart() -> None:
+    """Admin menu restart (or an installed update): start again with the code now on disk."""
+    logging.info("restarting the kiosk")
+    os.execv(sys.executable, [sys.executable, "-m", "nfc_login", *sys.argv[1:]])
 
 
 def run_web_ui(port, controller, config, reader, keypad, buzzer, simulated, updates) -> None:
@@ -94,6 +113,7 @@ def run_web_ui(port, controller, config, reader, keypad, buzzer, simulated, upda
     kiosk = WebKiosk(controller, config.ui, buzzer=buzzer, simulated_reader=simulated,
                      updates=updates)
     server = serve(kiosk, port)
+    kiosk.on_restart = server.shutdown
     NfcWorker(reader, controller, kiosk.publish).start()
     if keypad is not None:
         KeypadPoller(keypad, kiosk.press,
@@ -103,8 +123,12 @@ def run_web_ui(port, controller, config, reader, keypad, buzzer, simulated, upda
     except KeyboardInterrupt:
         pass
     finally:
+        server.server_close()
         if keypad is not None:
             keypad.cleanup()
+    if kiosk.restart_requested:
+        # Started without the app's control pipe: restart just this program.
+        restart()
 
 
 if __name__ == "__main__":

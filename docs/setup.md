@@ -128,6 +128,16 @@ Restore with `sudo mariadb nfc_login < nfc_login-YYYY-MM-DD.sql`.
 
 ## 6. Updating
 
+On the kiosk, no keyboard needed: a small **⬇ Update** shows by the clock
+when there's a newer version (the Pi checks GitHub every 6 hours when it's
+online). Install it from the admin menu: **3 System → 2 Install update**, `#`.
+It downloads the new version, installs any new Python packages, applies
+database changes and restarts the kiosk. If something goes wrong it says why
+and keeps running the old version. If the update changed the setup steps too,
+the System menu says so until you run `bash scripts/setup-pi.sh` again.
+
+By hand, the same steps are:
+
 ```bash
 cd ~/rpi-login-system
 git pull

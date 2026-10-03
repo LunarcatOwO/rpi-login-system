@@ -25,19 +25,59 @@ header .update { display: none; color: var(--info); font-size: 15px; align-items
 header .update.on { display: flex; }
 header .clock { font-size: 20px; font-variant-numeric: tabular-nums; }
 main { flex: 1; display: flex; min-height: 0; }
-.status { flex: 1; padding: 14px 16px; min-width: 0; }
+.status { flex: 1; padding: 14px 16px; min-width: 0; display: flex; flex-direction: column; }
 .status h1 { margin: 0; font-size: 31px; line-height: 1.2; overflow-wrap: anywhere; }
-.status .lines { margin-top: 12px; font-size: 18px; line-height: 1.35; white-space: pre-wrap; }
-aside { width: 300px; margin: 10px 10px 10px 0; background: var(--panel); display: flex;
+/* The screen's lines: text, and its "K  label" lines as buttons (drawLines). Too many
+   for the screen scroll by touch. */
+.status .lines { margin-top: 12px; font-size: 18px; line-height: 1.35; min-height: 0;
+  overflow: hidden auto; overscroll-behavior: contain; display: flex; flex-direction: column;
+  scrollbar-width: none; }
+.lines p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.lines p.gap { height: 8px; }
+.lines .keys { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
+  gap: 6px; margin: 3px 0; flex-shrink: 0; }
+button.key { display: flex; align-items: center; gap: 8px; min-height: 46px; min-width: 0;
+  padding: 4px 10px 4px 7px; border: 0; border-radius: 6px; background: var(--tab);
+  color: var(--text); font: 16px/1.2 var(--sans); text-align: left; cursor: inherit; }
+button.key:active { background: var(--panel); }
+button.key b { flex: none; display: grid; place-items: center; width: 28px; height: 28px;
+  border-radius: 4px; background: var(--bg); color: var(--prompt); font: bold 17px var(--mono); }
+button.key span { min-width: 0; overflow-wrap: anywhere; }
+/* The 4x4 keypad on screen, for IDs, PINs and amounts; it takes the side panel's place. */
+.keypad { display: none; width: 340px; margin: 10px 10px 10px 0; padding: 6px; gap: 6px;
+  background: var(--panel); grid-template: repeat(4, 1fr) / repeat(4, 1fr); }
+body.keypad-on .keypad { display: grid; }
+body.keypad-on aside { display: none; }
+.keypad button { border: 0; border-radius: 6px; background: var(--tab); color: var(--text);
+  font: bold 30px var(--sans); cursor: inherit; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 2px; padding: 0; }
+.keypad button.letter { color: var(--info); }
+.keypad button.enter { background: var(--success); color: var(--bg); }
+.keypad button small { font: 12px var(--sans); }
+.keypad button:active { background: var(--panel); color: var(--text); }
+aside { width: 340px; margin: 10px 10px 10px 0; background: var(--panel); display: flex;
   flex-direction: column; min-height: 0; }
 .tabs { display: flex; }
 .tabs button { flex: 1; font: bold 16px var(--sans); border: 0; padding: 9px 0; background: var(--panel);
   color: var(--muted); cursor: inherit; }
 .tabs button.on { background: var(--tab); color: var(--text); }
+/* A list longer than the panel scrolls: by itself (autoScroll), or by touch. */
+#side { flex: 1; min-height: 0; overflow: hidden auto; overflow-anchor: none;
+  overscroll-behavior: contain; }
+#side::-webkit-scrollbar { width: 4px; }
+#side::-webkit-scrollbar-thumb { background: #3a4552; border-radius: 2px; }
 table { border-collapse: collapse; margin: 6px 8px; font: 14px/1.45 var(--mono); width: calc(100% - 16px);
   table-layout: fixed; }
-td { white-space: nowrap; overflow: hidden; text-overflow: clip; padding: 0 3px 0 0; }
-td.r { text-align: right; padding: 0; }
+td { white-space: nowrap; overflow: hidden; padding: 0; }
+td.r { text-align: right; }
+td.rank { padding-right: .5ch; }
+td.team { padding-left: .8ch; }
+/* A name too long for its column slides sideways to show its end (fitNames). */
+td.nm span { display: inline-block; }
+@media (prefers-reduced-motion: reduce) {
+  td.nm { text-overflow: ellipsis; }
+  td.nm span { display: inline; }
+}
 .empty { color: var(--muted); padding: 8px 10px; font-size: 15px; }
 footer { height: 36px; justify-content: space-between; gap: 12px; }
 footer .entry { font: bold 22px var(--mono); color: var(--prompt); white-space: nowrap; }
@@ -46,15 +86,20 @@ footer .hint { color: var(--muted); font-size: 13px; white-space: pre; overflow:
   align-items: center; font-size: 13px; }
 .sim.on { display: flex; }
 .sim input { width: 160px; font: 13px var(--mono); }
-/* On-screen keyboard for a new user's name; it takes the side panel's room. */
-.kbd { display: none; margin-top: 10px; }
-body.typing .kbd { display: block; }
+/* On-screen keyboard for names and Wi-Fi passwords; it takes the side panel's room,
+   and sits at the bottom so the text above gives way first, never the keys. */
+.kbd { display: none; margin-top: auto; padding-top: 8px; flex-direction: column; gap: 4px;
+  flex-shrink: 0; }
+body.typing .kbd { display: flex; }
 body.typing aside { display: none; }
-.kbd div { display: flex; gap: 4px; margin-bottom: 4px; }
-.kbd button { flex: 1; font: bold 20px var(--sans); border: 0; border-radius: 4px; padding: 10px 0;
+.kbd div { display: flex; gap: 4px; }
+.kbd button, .kbd span { flex: 2 1 0; min-width: 0; height: 46px; }
+.kbd button { font: bold 20px var(--sans); border: 0; border-radius: 4px; padding: 0;
   background: var(--tab); color: var(--text); cursor: inherit; }
+.kbd button.word { font-size: 17px; }
 .kbd button:active { background: var(--panel); }
 .kbd button.done { background: var(--success); color: var(--bg); }
+.kbd button.on { background: var(--info); color: var(--bg); }
 .offline { position: fixed; inset: auto 0 0 auto; margin: 8px; padding: 4px 8px; border-radius: 4px;
   background: var(--error); color: #fff; font-size: 13px; display: none; }
 .offline.on { display: block; }
@@ -78,12 +123,13 @@ body.typing aside { display: none; }
     <div class="lines" id="lines"></div>
     <div class="kbd" id="kbd"></div>
   </section>
+  <div class="keypad" id="keypad"></div>
   <aside>
     <div class="tabs">
       <button id="tab-here" class="on">Here now</button>
       <button id="tab-board">Leaderboard</button>
     </div>
-    <div id="side" style="overflow:hidden"></div>
+    <div id="side"></div>
   </aside>
 </main>
 <footer>
@@ -99,7 +145,9 @@ body.typing aside { display: none; }
 <script>
 const $ = id => document.getElementById(id);
 const TONES = ["info", "success", "warning", "error", "prompt"];
+const still = matchMedia("(prefers-reduced-motion: reduce)");
 let tab = "here", side = null;
+let kbMode = null, kbPage = "letters", kbShift = false;   // the on-screen keyboard
 
 if (new URLSearchParams(location.search).has("kiosk")) document.body.classList.add("kiosk");
 
@@ -110,26 +158,153 @@ function post(path, data) {
 function showScreen(s) {
   $("title").textContent = s.title;
   $("title").style.color = TONES.includes(s.tone) ? `var(--${s.tone})` : "var(--text)";
-  $("lines").textContent = s.lines.join("\n");
+  drawLines(s.lines);
   $("entry").textContent = s.entry === null ? "" : "> " + s.entry;
-  document.body.classList.toggle("typing", !!s.keyboard);
+  // Older kiosks sent keyboard: true for the name keyboard.
+  const mode = typeof s.keyboard === "string" ? s.keyboard || null : (s.keyboard ? "name" : null);
+  const letters = mode === "name" || mode === "text";
+  if (mode !== kbMode) {   // a keyboard screen starts on the letters, unshifted
+    kbMode = mode; kbPage = "letters"; kbShift = false;
+    if (letters) drawKeys();
+  }
+  document.body.classList.toggle("typing", letters);
+  document.body.classList.toggle("keypad-on", mode === "keypad");
 }
 
 function typing() { return document.body.classList.contains("typing"); }
 
-// On-screen keyboard: letters go in lower case; the kiosk capitalises names.
-for (const row of ["QWERTYUIOP", "ASDFGHJKL'", "ZXCVBNM-.", ["Space", "Delete", "Done"]]) {
-  const line = document.createElement("div");
-  for (const label of row) {
-    const b = document.createElement("button");
-    b.textContent = label;
-    const char = { Space: " ", Delete: "back", Done: "done" }[label] || label.toLowerCase();
-    if (label === "Done") b.className = "done";
-    b.onclick = () => post("/type", { char });
-    line.append(b);
+// A line made only of "K  label" parts (K one keypad key, two spaces, the label;
+// parts three or more spaces apart) is drawn as buttons that press those keys.
+// The same as key_parts, blocks and menu_columns in nfc_login/ui/screen_keys.py.
+function keyParts(line) {
+  const parts = [];
+  for (const chunk of line.trim().split(/ {3,}/)) {
+    const m = /^([0-9A-D*#])  (\S.*)$/.exec(chunk);
+    if (!m) return null;
+    parts.push([m[1], m[2].trimEnd()]);
   }
-  $("kbd").append(line);
+  return parts;
 }
+
+// Lines grouped for drawing: ["text", line], ["row", parts] for a line of several
+// keys, ["menu", parts] for a run of one-key lines.
+function blocks(lines) {
+  const out = [];
+  for (const line of lines) {
+    const parts = keyParts(line), last = out[out.length - 1];
+    if (!parts) out.push(["text", line]);
+    else if (parts.length > 1) out.push(["row", parts]);
+    else if (last && last[0] === "menu") last[1].push(parts[0]);
+    else out.push(["menu", parts]);
+  }
+  return out;
+}
+
+// A menu's buttons in columns, filled downwards: two from five buttons on.
+function menuColumns(items) {
+  if (items.length < 5) return [items];
+  const half = Math.ceil(items.length / 2);
+  return [items.slice(0, half), items.slice(half)];
+}
+
+let drawnLines = null;
+function drawLines(lines) {
+  const sig = JSON.stringify(lines);
+  if (sig === drawnLines) return;   // e.g. only the typed entry changed
+  drawnLines = sig;
+  $("lines").replaceChildren(...blocks(lines).map(([kind, content]) => {
+    if (kind === "text") {
+      const p = document.createElement("p");
+      if (content.trim()) p.textContent = content; else p.className = "gap";
+      return p;
+    }
+    const box = document.createElement("div");
+    box.className = "keys";
+    // A row is one grid row; a menu's columns fill downwards, their rows lined up.
+    const columns = kind === "row" ? content.map(part => [part]) : menuColumns(content);
+    box.style.gridTemplateRows = `repeat(${columns[0].length}, auto)`;
+    for (const [key, label] of columns.flat()) {
+      const b = document.createElement("button");
+      b.className = "key";
+      const k = document.createElement("b"), text = document.createElement("span");
+      k.textContent = key;
+      text.textContent = label;
+      b.append(k, text);
+      b.onclick = () => sendKey(key);
+      box.append(b);
+    }
+    return box;
+  }));
+  $("lines").scrollTop = 0;
+}
+
+// The on-screen 4x4 keypad, laid out like the real one.
+const KEYPAD = ["123A", "456B", "789C", "*0#D"], CAPTIONS = { "#": "Enter", "*": "Delete / Back" };
+$("keypad").append(...[...KEYPAD.join("")].map(key => {
+  const b = document.createElement("button");
+  b.textContent = key;
+  if (CAPTIONS[key]) b.append(Object.assign(document.createElement("small"),
+                                            { textContent: CAPTIONS[key] }));
+  if ("ABCD".includes(key)) b.className = "letter";
+  if (key === "#") b.className = "enter";
+  b.onclick = () => sendKey(key);
+  return b;
+}));
+
+// On-screen keyboards, as rows of keys. "name" types people's names (letters go in
+// lower case; the kiosk capitalises them). "text" is a full keyboard for Wi-Fi
+// passwords: a one-shot Shift, and a 123 page of digits and symbols. One-character
+// keys type themselves, "" is a half-key gap, longer labels are special keys.
+const KEYBOARDS = {
+  name: [[..."QWERTYUIOP"], [..."ASDFGHJKL'"], [..."ZXCVBNM-."], ["Space", "Delete", "Done"]],
+  letters: [[..."qwertyuiop"], ["", ..."asdfghjkl", ""], ["Shift", ..."zxcvbnm", "Delete"],
+            ["123", "Space", "Done"]],
+  symbols: [[..."1234567890"], [..."-/:;()$&@\""], [...".,?!'#%*+="], [..."_\\|~<>{}[]^`"],
+            ["ABC", "Space", "Delete", "Done"]],
+};
+const WEIGHTS = { "": 1, Shift: 3, Delete: 3, "123": 4, ABC: 4, Done: 4, Space: 8 };
+const CHARS = { Space: " ", Delete: "back", Done: "done" };
+
+function drawKeys() {
+  const rows = kbMode === "name" ? KEYBOARDS.name : KEYBOARDS[kbPage];
+  $("kbd").replaceChildren(...rows.map(row => {
+    const line = document.createElement("div");
+    for (const key of row) {
+      const b = document.createElement(key ? "button" : "span");
+      b.style.flexGrow = WEIGHTS[key] || 2;
+      if (key) {
+        b.textContent = kbShift && key.length === 1 ? key.toUpperCase() : key;
+        if (key.length > 1) b.classList.add("word");
+        if (key === "Done") b.classList.add("done");
+        if (key === "Shift" && kbShift) b.classList.add("on");
+        b.onclick = () => pressKey(key);
+      }
+      line.append(b);
+    }
+    return line;
+  }));
+}
+
+function pressKey(key) {
+  if (key === "Shift") kbShift = !kbShift;
+  else if (key === "123" || key === "ABC") {
+    kbPage = key === "123" ? "symbols" : "letters";
+    kbShift = false;
+  } else {
+    let char = CHARS[key] || key;
+    if (kbMode === "name") char = char.toLowerCase();
+    else if (kbShift && /^[a-z]$/.test(char)) { char = char.toUpperCase(); kbShift = false; drawKeys(); }
+    return sendChar(char);
+  }
+  drawKeys();
+}
+
+// One at a time, so fast typing reaches the kiosk in order.
+let sending = Promise.resolve();
+function sendChar(char) { sending = sending.then(() => post("/type", { char })); }
+function sendKey(key) { sending = sending.then(() => post("/key", { key })); }
+
+function setText(el, text) { if (el.textContent !== text) el.textContent = text; }
 
 function cell(text, cls) {
   const td = document.createElement("td");
@@ -138,33 +313,157 @@ function cell(text, cls) {
   return td;
 }
 
+// The side panel's list. Its rows are kept from one refresh to the next and only
+// what changed is redrawn, so the scrolling and the sliding names carry on; the
+// times are updated in place.
+let view = null;   // what #side shows: {tab, empty} or {tab, tbody, *Col, rows}
+
+function makeRow(r, sig) {
+  const tr = document.createElement("tr");
+  const name = document.createElement("span");
+  name.textContent = r.name;
+  const nameCell = cell("", "nm");
+  nameCell.append(name);
+  const time = cell(r.time, "r");
+  if (tab === "board") tr.append(cell(r.rank, "r rank"));
+  tr.append(cell(r.code), nameCell, cell(r.team, "team"), time);
+  return { tr, sig, name, time, over: null, slide: null };
+}
+
+function setWidth(col, chars) {   // true if the column changed
+  const width = chars + "ch";
+  if (col.style.width === width) return false;
+  col.style.width = width;
+  return true;
+}
+
 function renderSide() {
   if (!side) return;
-  $("tab-here").textContent = `Here now (${side.here.length})`;
+  setText($("tab-here"), `Here now (${side.here.length})`);
   $("tab-here").classList.toggle("on", tab === "here");
   $("tab-board").classList.toggle("on", tab === "board");
   const rows = tab === "here" ? side.here : side.board;
   const box = $("side");
-  box.replaceChildren();
   if (!rows.length) {
+    if (view && view.tab === tab && view.empty) return;
     const p = document.createElement("div");
     p.className = "empty";
     p.textContent = tab === "here" ? "Nobody signed in yet" : "No one yet";
-    box.append(p);
+    box.replaceChildren(p);
+    view = { tab, empty: true };
     return;
   }
-  const table = document.createElement("table");
-  const widths = tab === "here" ? ["4.5ch", "8.5ch", "8.5ch", ""] : ["2.5ch", "4.5ch", "6.5ch", "8.5ch", ""];
-  const cols = document.createElement("colgroup");
-  for (const w of widths) { const c = document.createElement("col"); if (w) c.style.width = w; cols.append(c); }
-  table.append(cols);
-  for (const r of rows) {
-    const tr = document.createElement("tr");
-    if (tab === "board") tr.append(cell(r.rank, "r"));
-    tr.append(cell(r.code), cell(r.name), cell(r.team), cell(r.time, "r"));
-    table.append(tr);
+  if (!view || view.tab !== tab || view.empty) {
+    // Columns: [rank] code name team time. The name takes what the others leave.
+    const table = document.createElement("table"), cols = document.createElement("colgroup");
+    const col = width => cols.appendChild(Object.assign(document.createElement("col"),
+                                                        { style: `width: ${width}` }));
+    const rankCol = tab === "board" ? col("2.8ch") : null;
+    col("5ch"); col("auto");
+    const teamCol = col("8.8ch"), timeCol = col("8ch"), tbody = document.createElement("tbody");
+    table.append(cols, tbody);
+    box.replaceChildren(table);
+    view = { tab, tbody, rankCol, teamCol, timeCol, rows: new Map() };
   }
-  box.append(table);
+  // The rank, team and time columns are as wide as their longest entry, plus a gap.
+  const longest = key => Math.max(...rows.map(r => String(r[key]).length));
+  let changed = setWidth(view.timeCol, longest("time") + 1);
+  changed = setWidth(view.teamCol, Math.min(8, longest("team")) + 0.8) || changed;
+  if (view.rankCol) changed = setWidth(view.rankCol, longest("rank") + 0.8) || changed;
+  const next = new Map(), tbody = view.tbody;
+  rows.forEach((r, i) => {
+    let key = r.code;
+    while (next.has(key)) key += "+";
+    const sig = JSON.stringify([r.rank, r.code, r.name, r.team]);
+    let row = view.rows.get(key);
+    if (!row || row.sig !== sig) { row = makeRow(r, sig); changed = true; }
+    else setText(row.time, r.time);
+    next.set(key, row);
+    const here = tbody.children[i];
+    if (here !== row.tr) { tbody.insertBefore(row.tr, here || null); changed = true; }
+  });
+  while (tbody.children.length > rows.length) { tbody.lastChild.remove(); changed = true; }
+  view.rows = next;
+  if (changed) fitNames();
+}
+
+// A name too long for its column shows its start for 2 s, slides (25 px a second)
+// until its end shows, rests 2 s, jumps back, and again. Measured once laid out,
+// and again whenever the panel changes size (hidden while typing, a scrollbar).
+function fitNames() {
+  if (!view || view.empty) return;
+  for (const row of view.rows.values()) {
+    const over = Math.ceil(row.name.offsetWidth - row.name.parentNode.clientWidth);
+    if (over === row.over) continue;
+    row.over = over;
+    if (row.slide) row.slide.cancel();
+    row.slide = null;
+    if (over <= 0 || still.matches) continue;
+    const hold = 2000, move = over / 25 * 1000, total = 2 * hold + move;
+    const at = x => ({ transform: `translateX(${-x}px)` });
+    row.slide = row.name.animate([
+      { ...at(0), offset: 0 }, { ...at(0), offset: hold / total },
+      { ...at(over), offset: (hold + move) / total }, { ...at(over), offset: 1 },
+    ], { duration: total, iterations: Infinity });
+  }
+}
+new ResizeObserver(fitNames).observe($("side"));
+document.fonts.ready.then(fitNames);
+
+// A list longer than the panel scrolls by itself, 20 px a second: a 3 s rest at the
+// top, down to the end, 3 s there, back to the top. Someone touching, dragging or
+// wheeling it pauses this for 20 s. With reduced motion it turns a panel at a time.
+const auto = { phase: "top", since: 0, pos: 0, last: 0, pausedUntil: 0 };
+
+function toTop(now) {
+  $("side").scrollTop = 0;
+  Object.assign(auto, { phase: "top", since: now, pos: 0, pausedUntil: 0 });
+}
+
+function autoScroll(now) {
+  requestAnimationFrame(autoScroll);
+  const dt = Math.min(now - auto.last, 100) / 1000;
+  auto.last = now;
+  const box = $("side"), max = box.scrollHeight - box.clientHeight;
+  if (max < 1) {   // it all fits, or the panel is hidden
+    Object.assign(auto, { phase: "top", since: now, pos: 0 });
+    return;
+  }
+  if (now < auto.pausedUntil) return;
+  if (auto.pausedUntil) {   // carry on from where it was left
+    auto.pausedUntil = 0;
+    auto.pos = box.scrollTop;
+    auto.phase = auto.pos >= max - 1 ? "bottom" : "down";
+    auto.since = now;
+  }
+  if (auto.phase === "top") {
+    if (now - auto.since >= 3000) Object.assign(auto, { phase: "down", since: now });
+  } else if (auto.phase === "down") {
+    if (!still.matches) auto.pos += 20 * dt;
+    else if (now - auto.since >= 6000) {
+      auto.pos += box.clientHeight - 20;
+      auto.since = now;
+    }
+    auto.pos = Math.min(auto.pos, max);
+    if (Math.round(auto.pos) !== box.scrollTop) box.scrollTop = auto.pos;
+    if (auto.pos >= max) Object.assign(auto, { phase: "bottom", since: now });
+  } else if (now - auto.since >= 3000) {
+    toTop(now);
+  }
+}
+requestAnimationFrame(autoScroll);
+
+function pauseAuto() { auto.pausedUntil = performance.now() + 20000; }
+for (const type of ["pointerdown", "touchstart", "wheel"]) {
+  $("side").addEventListener(type, pauseAuto, { passive: true });
+}
+// A flick keeps scrolling after the finger lifts: that counts as the person too.
+$("side").addEventListener("scroll", () => { if (auto.pausedUntil) pauseAuto(); }, { passive: true });
+
+function selectTab(t) {
+  tab = t;
+  renderSide();
+  toTop(performance.now());
 }
 
 async function loadSide() {
@@ -172,31 +471,31 @@ async function loadSide() {
     const res = await fetch("/api/kiosk", { cache: "no-store" });
     if (!res.ok) return;
     side = await res.json();
-    $("season").textContent = "Season " + side.season;
+    setText($("season"), "Season " + side.season);
     const keys = side.keys.map(k => k.key).join("/");
-    $("hint").textContent = `No card? Type your ID: ${keys} + number` +
-      (side.mentors ? ", mentors numbers only" : "") + "    * admin";
+    setText($("hint"), `No card? Type your ID: ${keys} + number` +
+      (side.mentors ? ", mentors numbers only" : "") + "    * admin");
     $("sim").classList.toggle("on", side.simulated);
     $("update").classList.toggle("on", side.update);
     renderSide();
   } catch (e) { /* the event stream shows the offline notice */ }
 }
 
-$("tab-here").onclick = () => { tab = "here"; renderSide(); };
-$("tab-board").onclick = () => { tab = "board"; renderSide(); };
+$("tab-here").onclick = () => selectTab("here");
+$("tab-board").onclick = () => selectTab("board");
 $("tap").onclick = () => post("/tap", { uid: $("uid").value });
 
 // The computer keyboard works as the keypad (handy in the simulator or with a USB keyboard).
 document.addEventListener("keydown", e => {
   if (e.target === $("uid")) { if (e.key === "Enter") $("tap").click(); return; }
-  if (typing() && e.key !== "Escape") {   // a USB keyboard types the name too
+  if (typing() && e.key !== "Escape") {   // a USB keyboard types names and passwords too
     const char = { Enter: "done", Backspace: "back" }[e.key] || (e.key.length === 1 ? e.key : "");
-    if (char) { e.preventDefault(); post("/type", { char }); }
+    if (char) { e.preventDefault(); sendChar(char); }
     return;
   }
   const map = { Enter: "#", Backspace: "*", Escape: "*" };
   let key = map[e.key] || e.key.toUpperCase();
-  if (key.length === 1 && "0123456789ABCD*#".includes(key)) { e.preventDefault(); post("/key", { key }); }
+  if (key.length === 1 && "0123456789ABCD*#".includes(key)) { e.preventDefault(); sendKey(key); }
 });
 
 function connect() {

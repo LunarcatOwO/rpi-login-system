@@ -9,8 +9,9 @@ kiosk.
     GET  /events           Server-Sent Events: screens, and "refresh" hints
     GET  /api/kiosk        who's here + leaderboard (+ season, team names)
     POST /key   key=7      a keypad key (the page sends computer keyboard keys)
-    POST /type  char=a     the on-screen keyboard, while typing a name
-                           (char=back deletes, char=done finishes)
+    POST /type  char=a     the on-screen keyboard, while typing a name or a
+                           Wi-Fi password: any one character, or char=back
+                           (delete) / char=done
     POST /tap   uid=04AB…  simulated mode only: pretend a card was tapped
 """
 
@@ -18,6 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import queue
 import threading
 import time
@@ -34,6 +36,19 @@ log = logging.getLogger(__name__)
 
 PAGE = Path(__file__).with_name("kiosk.html")
 KEYS = set("0123456789ABCD*#")
+RESTART_DELAY_SECONDS = 2.5
+
+
+def control_pipe():
+    """The Electron app's control pipe (see _control), or None."""
+    fd = os.environ.get("NFC_KIOSK_CONTROL_FD", "")
+    if not fd.isdigit():
+        return None
+    try:
+        return os.fdopen(int(fd), "w", encoding="utf-8")
+    except OSError as exc:
+        log.warning("kiosk: no control pipe on fd %s (%s)", fd, exc)
+        return None
 
 
 class WebKiosk:
@@ -51,6 +66,11 @@ class WebKiosk:
         self._screen = controller.idle_screen()
         self._revert_at: float | None = None
         self._keys: queue.Queue = queue.Queue()
+        self.control = control_pipe()
+        self.on_restart = None          # set by __main__: stops the server so it can restart
+        self.restart_requested = False
+        # Background jobs (Wi-Fi, updates) show their result through this.
+        controller.publish = self.publish
         threading.Thread(target=self._key_loop, daemon=True, name="keys").start()
         threading.Thread(target=self._tick, daemon=True, name="kiosk-tick").start()
 
@@ -66,10 +86,36 @@ class WebKiosk:
                                if screen.hold_seconds else None)
         self._send({"type": "screen", "screen": screen_json(screen)})
         if screen.close_app:
-            # The Electron app watches for this line and quits (electron/main.js).
-            log.info("kiosk: close requested from the admin menu")
+            self._control("close")
+        if getattr(screen, "restart_app", False):
+            self._control("restart")
         if screen.refresh_leaderboard:
             self._send({"type": "refresh"})
+
+    def _control(self, command: str) -> None:
+        """Ask the Electron app to close or restart (System menu, or an installed update).
+
+        The app passes a private pipe as NFC_KIOSK_CONTROL_FD and only listens
+        there, so nothing written to the log (like a web page request) can
+        close the kiosk. Started without that pipe (an older copy of the app
+        that is still running, or a plain --web-ui run), a restart restarts
+        just this Python program, which loads the new code all the same.
+        """
+        if self.control is not None:
+            try:
+                self.control.write(command + "\n")
+                self.control.flush()
+                return
+            except OSError as exc:
+                log.warning("kiosk: couldn't reach the app (%s)", exc)
+        if command == "close":
+            # Older copies of the app quit on this line.
+            log.info("kiosk: close requested from the admin menu")
+        elif self.on_restart is not None:
+            log.info("kiosk: restarting the kiosk program")
+            self.restart_requested = True
+            # A moment to read the screen first.
+            threading.Timer(RESTART_DELAY_SECONDS, self.on_restart).start()
 
     def current(self) -> dict:
         with self._lock:
@@ -165,7 +211,16 @@ class WebKiosk:
 
 def screen_json(screen: Screen) -> dict:
     return {"title": screen.title, "lines": screen.lines, "tone": screen.tone,
-            "entry": screen.entry, "keyboard": screen.keyboard}
+            "entry": screen.entry, "keyboard": keyboard_mode(screen)}
+
+
+def keyboard_mode(screen: Screen) -> str | None:
+    """The on-screen keys a screen wants: None, "name" or "text" (letter keyboards),
+    or "keypad" (the 4x4 keypad, for IDs, PINs and amounts)."""
+    kb = screen.keyboard
+    if isinstance(kb, str):
+        return kb or None
+    return "name" if kb else None   # older controllers said keyboard=True for names
 
 
 def _typed(char: str) -> str | None:

@@ -168,6 +168,11 @@ class UserService:
         with self.db.transaction() as cur:
             return repo.get_setting(cur, ADMIN_PIN_SETTING) is not None
 
+    def admin_pin_hash(self) -> str | None:
+        """The stored admin PIN hash: changes whenever the PIN does."""
+        with self.db.transaction() as cur:
+            return repo.get_setting(cur, ADMIN_PIN_SETTING)
+
     def check_admin_pin(self, pin: str) -> bool:
         with self.db.transaction() as cur:
             return verify_pin(pin, repo.get_setting(cur, ADMIN_PIN_SETTING))

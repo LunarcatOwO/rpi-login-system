@@ -6,6 +6,7 @@ import json
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import pytest
@@ -73,13 +74,13 @@ def test_screen_keyboard_types_a_name(kiosk):
     kiosk, users, base = kiosk
     users.set_admin_pin("2468")
     q = kiosk.listen()
-    for key in "*2468#73":
+    for key in "*2468#113":     # admin menu, People, Add a user, team 3
         post(base + "/key", f"key={key}")
-    assert next_screen(q, "New Sustainability member's name")["keyboard"]
+    assert next_screen(q, "New Sustainability member's name")["keyboard"] == "name"
     for char in ["r", "i", "v", "back", "x"]:
         post(base + "/type", f"char={char}")
     post(base + "/type", "char=done")
-    assert next_screen(q, "Added Rix")["keyboard"] is False
+    assert next_screen(q, "Added Rix")["keyboard"] is None
     assert users.get_by_code("C001")["username"] == "Rix"
     with pytest.raises(urllib.error.HTTPError) as err:
         post(base + "/type", "char=toolong")
@@ -91,3 +92,51 @@ def test_update_icon_flag(kiosk):
     assert json.load(urllib.request.urlopen(base + "/api/kiosk"))["update"] is False
     kiosk.updates = type("U", (), {"available": True})()
     assert json.load(urllib.request.urlopen(base + "/api/kiosk"))["update"] is True
+
+
+def test_background_jobs_can_publish(kiosk):
+    kiosk, _users, _base = kiosk
+    assert kiosk.controller.publish == kiosk.publish
+
+
+def test_keyboard_mode_reaches_the_page(kiosk):
+    kiosk, _users, _base = kiosk
+    q = kiosk.listen()
+    kiosk.publish(kc.Screen("Wi-Fi password for School", ["Type it, then Done."], "prompt",
+                            entry="•••a", keyboard="text"))
+    assert next_screen(q, "Wi-Fi password for School")["keyboard"] == "text"
+    assert kiosk.current()["keyboard"] == "text"
+    kiosk.publish(kc.Screen("Old style", keyboard=True))   # older controllers: names
+    assert next_screen(q, "Old style")["keyboard"] == "name"
+    kiosk.publish(kc.Screen("No keyboard"))
+    assert next_screen(q, "No keyboard")["keyboard"] is None
+
+
+def test_screen_keypad_and_key_buttons(kiosk):
+    kiosk, users, base = kiosk
+    users.set_admin_pin("2468")
+    q = kiosk.listen()
+    # The idle screen's "*  Admin menu" button and the keypad's keys post /key.
+    post(base + "/key", "key=*")
+    pin = next_screen(q, "Admin PIN")
+    assert pin["keyboard"] == "keypad" and "*  back" in pin["lines"]
+    post(base + "/key", "key=*")
+    assert next_screen(q, "Tap your card")["keyboard"] is None
+    post(base + "/key", "key=#")      # "#  Mentors…" on the idle screen: type an ID
+    assert next_screen(q, "Your user ID")["keyboard"] == "keypad"
+    page = urllib.request.urlopen(base + "/").read().decode()
+    assert 'id="keypad"' in page and "function keyParts(" in page
+
+
+def test_password_symbols_survive_the_trip(kiosk, monkeypatch):
+    kiosk, _users, base = kiosk
+    typed = []
+    monkeypatch.setattr(kiosk.controller, "handle_char", typed.append)
+    chars = list("&=+#%/\\'\"<> Q;?") + ["back", "done"]
+    for char in chars:
+        # Encoded like the page's URLSearchParams (a space becomes "+").
+        post(base + "/type", urllib.parse.urlencode({"char": char}))
+    deadline = time.monotonic() + 3
+    while len(typed) < len(chars) and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert typed == chars[:-2] + ["\b", "\n"]

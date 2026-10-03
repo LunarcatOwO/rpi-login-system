@@ -72,28 +72,32 @@ def status_payload(services: Services, sections: list[dict], leaderboard_size: i
 
 
 class AdminSessions:
-    """In-memory admin logins (cookie token -> expiry) plus a PIN lockout."""
+    """In-memory admin logins plus a PIN lockout.
+
+    Each login remembers the admin PIN (its hash) it was made with, so
+    changing the PIN, on the kiosk or the command line, logs everyone out.
+    """
 
     def __init__(self):
-        self._tokens: dict[str, float] = {}
+        self._tokens: dict[str, tuple[float, str | None]] = {}   # token -> (expiry, PIN hash)
         self._failures = 0
         self._locked_until = 0.0
         self._lock = threading.Lock()
 
-    def create(self) -> str:
+    def create(self, pin_hash: str | None = None) -> str:
         token = secrets.token_urlsafe(32)
         with self._lock:
-            self._tokens[token] = time.monotonic() + SESSION_SECONDS
+            self._tokens[token] = (time.monotonic() + SESSION_SECONDS, pin_hash)
             self._failures = 0
         return token
 
-    def valid(self, token: str | None) -> bool:
+    def valid(self, token: str | None, pin_hash: str | None = None) -> bool:
         with self._lock:
-            expiry = self._tokens.get(token or "")
-            if not expiry or expiry < time.monotonic():
+            expiry, made_with = self._tokens.get(token or "", (0.0, None))
+            if expiry < time.monotonic() or made_with != pin_hash:
                 self._tokens.pop(token or "", None)
                 return False
-            self._tokens[token] = time.monotonic() + SESSION_SECONDS  # sliding expiry
+            self._tokens[token] = (time.monotonic() + SESSION_SECONDS, made_with)  # sliding
             return True
 
     def end(self, token: str | None) -> None:
@@ -119,7 +123,10 @@ def make_handler(services: Services, sections: list[dict], refresh_seconds: floa
         server_version = "nfc-login"
 
         def log_message(self, fmt, *args):  # route through logging, not stderr
-            log.info("%s %s", self.address_string(), fmt % args)
+            # Anyone on the network picks the request text: show control characters
+            # escaped so it can't fake extra log lines.
+            message = (fmt % args).encode("unicode_escape").decode("ascii")
+            log.info("%s %s", self.address_string(), message)
 
         # ---------------------------------------------------------- helpers
 
@@ -150,7 +157,8 @@ def make_handler(services: Services, sections: list[dict], refresh_seconds: floa
             return cookie[SESSION_COOKIE].value if SESSION_COOKIE in cookie else None
 
         def _is_admin(self) -> bool:
-            return sessions.valid(self._token())
+            token = self._token()
+            return bool(token) and sessions.valid(token, services.users.admin_pin_hash())
 
         def _form(self) -> dict[str, str]:
             length = min(int(self.headers.get("Content-Length") or 0), 10_000)
@@ -213,7 +221,7 @@ def make_handler(services: Services, sections: list[dict], refresh_seconds: floa
                            HTTPStatus.TOO_MANY_REQUESTS)
                 return
             if services.users.check_admin_pin(form.get("pin", "")):
-                token = sessions.create()
+                token = sessions.create(services.users.admin_pin_hash())
                 cookie = (f"{SESSION_COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/; "
                           f"Max-Age={SESSION_SECONDS}")
                 self._redirect("/admin", {"Set-Cookie": cookie})

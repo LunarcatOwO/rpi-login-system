@@ -85,3 +85,12 @@ def test_cross_site_post_rejected(web):
     with pytest.raises(urllib.error.HTTPError) as err:
         urllib.request.urlopen(req)
     assert err.value.code == 403
+
+
+def test_changing_the_admin_pin_logs_out_the_web_page(web):
+    base, users, _ = web
+    op = opener()
+    assert "Add or subtract hours" in post(op, base + "/admin/login", pin="2468").read().decode()
+    assert "Add or subtract hours" in op.open(base + "/admin").read().decode()
+    users.set_admin_pin("1357")           # e.g. on the kiosk: System > 4
+    assert "Admin PIN" in op.open(base + "/admin").read().decode()

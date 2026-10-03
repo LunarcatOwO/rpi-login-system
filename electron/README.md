@@ -14,9 +14,18 @@ ticking each one off on screen:
 
 If a step fails, the screen says which one and shows the last log lines, then
 tries again every 5 seconds, so a Pi that boots before its database or a
-reader that's plugged in late recovers by itself. Quitting (admin menu **8** on the keypad, or **Ctrl+Alt+Q**)
-stops the kiosk program (it releases the GPIO pins) and stops MariaDB too if
-the app was the one that started it.
+reader that's plugged in late recovers by itself. Quitting (**System > 6** in
+the keypad's admin menu, or **Ctrl+Alt+Q**) stops the kiosk program (it
+releases the GPIO pins) and stops MariaDB too if the app was the one that
+started it.
+
+**System > 5** (Restart the kiosk app) restarts the app: it stops the kiosk
+program, then starts a fresh copy of the app, which boots everything again.
+Installing an update from the admin menu does the same by itself, so the
+updated kiosk program runs straight away. MariaDB keeps running through a
+restart. The kiosk program asks for a close or restart on a private pipe
+(file descriptor 3, `NFC_KIOSK_CONTROL_FD`), never through its log, so a web
+page request that ends up in the log can't close the kiosk.
 
 ```
 NFC Kiosk app ──starts──▶ MariaDB (if needed)
@@ -40,7 +49,9 @@ The easy way: `bash scripts/setup-pi.sh` sets up the whole Pi, app included
 
 That installs the app, turns off the Tkinter kiosk service (two programs
 can't share the card reader) and adds an autostart entry, so the kiosk opens
-fullscreen when the Pi logs in to the desktop. Admin menu **8** on the keypad (or **Ctrl+Alt+Q**) closes it; reopen it from the desktop menu (NFC Kiosk).
+fullscreen when the Pi logs in to the desktop. **System > 6** in the keypad's
+admin menu (or **Ctrl+Alt+Q**) closes it; reopen it from the desktop menu (NFC
+Kiosk).
 
 There's also an AppImage (`nfc-kiosk-0.2.0-arm64.AppImage`) that runs without
 installing: `chmod +x` it and run it. It needs `sudo apt install libfuse2`
