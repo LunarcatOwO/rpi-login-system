@@ -67,6 +67,11 @@ class SeasonService:
             repo.create_season(cur, name, self.clock())
             return repo.get_active_season(cur)
 
+    def next_name(self) -> str:
+        """A free name for a new season: the year, or 2026-2 if that's taken."""
+        with self.db.transaction() as cur:
+            return self._unique_name(cur, str(self.clock().year))
+
     def start_new(self, name: str | None = None) -> ResetSummary:
         now = self.clock()
         with self.db.transaction() as cur:

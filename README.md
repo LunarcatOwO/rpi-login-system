@@ -29,8 +29,12 @@ stats back onto their card along with a link a phone can open.
   page or the command line. Every change is logged with a reason.
 - **Only admins can enroll cards** (kiosk admin menu behind the admin PIN, or
   the admin CLI on the Pi).
-- **Keypad** (Da Vinci Kit 4x4): look yourself up or sign in by ID + PIN when
-  you forget your card, plus the admin menu.
+- **Keypad or touchscreen, either one:** every menu choice is also a button on
+  the screen, and ID and PIN screens show an on-screen keypad. Look yourself
+  up or sign in by ID + PIN when you forget your card.
+- **Admin menu on the kiosk itself** (People, Hours, System): add people,
+  enroll or remove cards, set PINs, change teams, adjust hours, Wi-Fi,
+  updates, restart and shut down. No keyboard or web page needed.
 - **Season resets** archive the old season, start everyone at 0h 00m for the
   new year, and keep all users, cards and history.
 - **Legacy system support:** imports users, cards, hours and past seasons

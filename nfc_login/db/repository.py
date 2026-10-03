@@ -182,7 +182,8 @@ def list_open_sessions(cur) -> list[dict]:
     cur.execute(
         "SELECT s.*, u.username, u.section, u.number FROM sessions s "
         "JOIN users u ON u.id = s.user_id "
-        "WHERE s.sign_out_at IS NULL ORDER BY u.section, s.sign_in_at"
+        # u.number breaks ties, so pages of the list never overlap or skip anyone.
+        "WHERE s.sign_out_at IS NULL ORDER BY u.section, s.sign_in_at, u.number, s.id"
     )
     return [with_code(r) for r in cur.fetchall()]
 

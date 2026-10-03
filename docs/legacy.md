@@ -60,7 +60,7 @@ first; `*` there goes back to the list. Once the team is set it never asks
 again. `*`, a wrong admin PIN or walking away leaves them unsigned and asks
 again next time.
 
-An admin can also place someone without a scan: admin menu → 6 on the kiosk,
+An admin can also place someone without a scan: admin menu → 1 People → 4 on the kiosk,
 "Change someone's team" on the web admin page, or
 `python -m nfc_login.admin user move U003 B` (`M` for mentors). U can't be
 used as a team letter in `config.toml`.

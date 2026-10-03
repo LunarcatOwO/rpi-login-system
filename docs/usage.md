@@ -52,20 +52,24 @@ The right side of the kiosk screen has two tabs you can tap:
 The clock in the top right is the current time.
 
 When the Pi is online it checks GitHub every 6 hours, and a small blue
-**⬇ Update** appears next to the clock when there's a newer version. It only
-tells you; to install it, run `cd ~/rpi-login-system && git pull` and restart
-the Pi. Turn the check off or change how often it runs under `[updates]` in
+**⬇ Update** appears next to the clock when there's a newer version. Install it
+from the admin menu: 3 System → 2 Install update. Turn the check off or change how often it runs under `[updates]` in
 `config.toml`.
 
 The same live list is on a web page anyone on the network can open on a
 phone or laptop: **`http://<pi-address>:8080/`**. It's grouped by team,
 updates every 3 seconds, and shows the leaderboard (with each person's team)
 too. The Pi's address is
-shown under the admin menu → 5 (System info).
+shown under the admin menu → 3 System → 1 System info.
 
 ![Live page](images/web-live.png)
 
-## Keypad
+## Keypad and touchscreen
+
+Everything works from either one. On the screen, every menu choice is a
+button (it shows the key it stands for), and screens that want an ID, a PIN
+or an amount show an on-screen keypad laid out like the real one. Names and
+Wi-Fi passwords are typed on an on-screen keyboard.
 
 ```
  1  2  3  A        A B C D   start typing a team member's ID (A007, B012...)
@@ -90,25 +94,54 @@ lock the keypad for a minute.
 
 ### Admin menu
 
-Press **`*`** on the start screen, enter the admin PIN, `#`, then:
+Press **`*`** on the start screen, enter the admin PIN, `#`. Everything an
+admin needs is here, so the kiosk works without anyone opening the web page
+or plugging in a keyboard. Pick a section with its number; `*` goes back.
+
+**1 People**
 
 | Key | Action |
 |---|---|
-| 1 | **Enroll a card:** type the user ID, then tap the new card |
-| 2 | **Add / subtract hours:** type the user ID, the time, then **A** add or **B** subtract |
-| 3 | Who is here |
-| 4 | Sign everyone out (end of the day; time is credited) |
-| 5 | System info (hostname, IP address, reader firmware) |
-| 6 | **Change someone's team:** type the user ID, then the team's number (1-5) or letter. They get the next free ID there |
-| 7 | **Add a user:** pick the team (1-5), type the name on the on-screen keyboard (or a USB keyboard), tap **Done**. The screen shows their new ID; tap their card to enroll it, or `*` to skip |
-| 8 | **Close the kiosk app** (asks first: `#` to close). The Pi's desktop shows; restart the Pi, or open **NFC Kiosk** from the desktop menu, to bring it back |
-| * | Leave the admin menu |
+| 1 | **Add a user:** pick the team (1-5), type the name on the on-screen keyboard, **Done**. The screen shows their new ID; tap their card to enroll it, or `*` to skip |
+| 2 | **Enroll a card:** type the user ID, then tap the new card |
+| 3 | **Remove someone's cards** (a lost card): type the user ID, `#`. Their ID and hours stay |
+| 4 | **Change someone's team:** type the user ID, then the team's number (1-5) or letter. They get the next free ID there |
+| 5 | **Rename someone:** type the user ID, fix the name on the on-screen keyboard, **Done** |
+| 6 | **Set someone's PIN** for signing in on the keypad without a card: user ID, the PIN, `#`, the PIN again, `#`. **D** (or `#` with nothing typed) removes their PIN, after asking |
+| 7 | **Deactivate / reactivate:** user ID, then `#`. A deactivated person's cards and ID stop working and they leave the leaderboard; their history is kept |
 
-Typing time for option 2: hours then two-digit minutes. `130` = 1h 30m,
-`45` = 45m, `200` = 2h.
+**2 Hours and sign-ins**
 
-Everything an admin needs day to day is on this menu, so the kiosk works
-without anyone opening the web page.
+| Key | Action |
+|---|---|
+| 1 | **Add / subtract hours:** type the user ID, the time, then **A** add or **B** subtract. Time is hours then two-digit minutes: `130` = 1h 30m, `45` = 45m, `200` = 2h |
+| 2 | **Sign someone in or out** by their ID (no PIN needed) |
+| 3 | Who is here, 8 at a time: `#` for the next page |
+| 4 | **Sign everyone out** (end of the day; time is credited), `#` to confirm |
+| 5 | **Start a new season:** everyone's hours go back to 0 and the old season is saved to the archive folder. Type the admin PIN again, then `#` |
+
+**3 System**
+
+| Key | Action |
+|---|---|
+| 1 | System info: name, IP address, Wi-Fi network, version, CPU temperature, free space, reader |
+| 2 | **Check for updates**, or **Install update** when one is waiting (the ⬇ Update by the clock). Shows what's new; `#` installs it and the kiosk restarts by itself |
+| 3 | **Wi-Fi:** pick a network (`#` scans again), type the password on the on-screen keyboard (the keypad's digits type too), **Done**. If Wi-Fi is switched off it's switched on first |
+| 4 | **Change the admin PIN:** new PIN, `#`, again, `#` |
+| 5 | Restart the kiosk app |
+| 6 | **Close the kiosk app** (to get to the Pi's desktop). Restart the Pi, or open **NFC Kiosk** from the desktop menu, to bring it back |
+| 7 | Restart the Pi |
+| 8 | **Shut down the Pi.** Do this before unplugging it; wait until the green light stops flashing |
+
+**Typing a name:** use the on-screen keyboard (or a USB keyboard). Each word
+starts with a capital by itself, and names can be up to 40 letters.
+
+These ask first (`#` for yes, `*` for back): removing someone's cards or PIN,
+deactivating or reactivating someone, signing everyone out, a new season
+(admin PIN again), installing an update, and restarting, closing or shutting
+down. Card scans keep working while the kiosk is busy (looking for Wi-Fi or
+installing an update). While an update installs, the rest of the System menu
+waits until it's done.
 
 Only admins can enroll cards: the kiosk asks for the admin PIN first, and
 otherwise the only way is the admin command line on the Pi.

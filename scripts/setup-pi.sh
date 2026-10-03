@@ -66,7 +66,7 @@ else
     sudo systemctl disable --now nfc-login.service 2>/dev/null || true
 
     # Starts at login, and is in the desktop menu to reopen it after
-    # closing it (admin menu 8 on the keypad).
+    # closing it (admin menu: 3 System, 6 on the keypad).
     mkdir -p "$HOME/.config/autostart" "$HOME/.local/share/applications"
     cat > "$HOME/.local/share/applications/nfc-kiosk.desktop" <<EOF
 [Desktop Entry]
@@ -85,10 +85,12 @@ echo "==> 4/5 Boot straight to the desktop, screen always on"
 sudo raspi-config nonint do_boot_behaviour B4    # desktop, logged in automatically
 sudo raspi-config nonint do_blanking 1           # 1 = screen blanking off
 
+# The kiosk shows a reminder until this has run after an update that changed setup.
+rm -f "$REPO_DIR/.setup-needed"
 echo "==> 5/5 Done"
-echo "After a reboot the kiosk opens fullscreen by itself. To close it: admin menu 8"
+echo "After a reboot the kiosk opens fullscreen by itself. To close it: admin menu 3, then 6"
 echo "on the keypad (or Ctrl+Alt+Q). Reopen it from the desktop menu: NFC Kiosk."
-echo "Add people on the kiosk: press *, the admin PIN, #, then 7."
+echo "Add people on the kiosk: press *, the admin PIN, #, then 1 People, 1 Add a user."
 read -r -p "Reboot now? [Y/n] " answer
 case "$answer" in
     [nN]*) echo "Reboot when you're ready: sudo reboot" ;;

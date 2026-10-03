@@ -5,7 +5,9 @@ Point them at one with environment variables, e.g.:
 
     NFC_LOGIN_TEST_DB_USER=nfc NFC_LOGIN_TEST_DB_PASSWORD=secret pytest
 
-Without NFC_LOGIN_TEST_DB_USER those tests are skipped.
+Without NFC_LOGIN_TEST_DB_USER those tests are skipped. The tests drop and
+recreate their database (nfc_login_test); set NFC_LOGIN_TEST_DB_NAME to use
+another, e.g. to run two test runs at once.
 """
 
 from __future__ import annotations
@@ -47,12 +49,12 @@ def db():
         "port": int(os.environ.get("NFC_LOGIN_TEST_DB_PORT", "3306")),
         "user": user,
         "password": os.environ.get("NFC_LOGIN_TEST_DB_PASSWORD", ""),
-        "name": "nfc_login_test",
+        "name": os.environ.get("NFC_LOGIN_TEST_DB_NAME", "nfc_login_test"),
     }
     database = Database(settings)
     conn = database.connect(with_database=False)
     with conn.cursor() as cur:
-        cur.execute("DROP DATABASE IF EXISTS nfc_login_test")
+        cur.execute(f"DROP DATABASE IF EXISTS `{settings['name']}`")
     conn.close()
     database.create_database()
     database.apply_schema()

@@ -7,8 +7,10 @@
 //      buzzer and the live web page on :8080
 //   3. the kiosk screen, fullscreen at 800x480 (the 5 inch touchscreen)
 // If any step fails, the screen says which and why, and it tries again.
-// Quitting (Ctrl+Alt+Q, or admin menu 8 on the keypad) stops the kiosk, and the database too if this app
-// started it.
+// Quitting (Ctrl+Alt+Q, or System > 6 in the keypad's admin menu) stops the kiosk, and the
+// database too if this app started it. System > 5 (Restart the kiosk app), and an update
+// installed from the admin menu, restart the app: it stops the kiosk and starts a fresh copy
+// of itself, which runs whatever code is now on disk. The database keeps running.
 //
 // Options (command line, or the matching environment variable):
 //   --home PATH     the rpi-login-system folder   NFC_KIOSK_HOME (default ~/rpi-login-system)
@@ -42,9 +44,11 @@ const DB_WAIT_SECONDS = 30;
 
 let win = null;
 let backend = null;
-let startedDatabase = false;
+// A restart hands this on, so the database is still stopped when the app finally quits.
+let startedDatabase = process.env.NFC_KIOSK_STARTED_DB === "1";
 let quitting = false;
 let shutDown = false;
+let restarting = false;
 let logTail = [];
 let steps = [];
 let ready = false;
@@ -174,9 +178,26 @@ const PROGRESS = [
   [/web page not started on port (\d+): (.*)/, m => step("web", "warn", m[2])],
   [/live page: off/, () => step("web", "off", "off")],
   [/kiosk screen at/, () => step("screen", "run", "")],
-  // Admin menu 8 on the keypad: close the app without needing a keyboard.
-  [/close requested from the admin menu/, () => setTimeout(() => app.quit(), 2500)],
 ];
+
+// Commands from the kiosk on its own pipe (fd 3, NFC_KIOSK_CONTROL_FD), never from the
+// log: the log also carries web page requests, which anyone on the network can word.
+// 2.5 s first so the screen can be read.
+const CONTROL = {
+  close: () => setTimeout(() => app.quit(), 2500),     // System > 6 in the admin menu
+  restart: () => setTimeout(restart, 2500),            // System > 5, or an update installed
+};
+
+function restart() {
+  if (quitting) return;
+  restarting = true;
+  process.env.NFC_KIOSK_STARTED_DB = startedDatabase ? "1" : "";
+  // relaunch() starts a new copy once this one has quit (before-quit stops the kiosk
+  // first). An AppImage must be started through its own file, not the unpacked one.
+  if (process.env.APPIMAGE) app.relaunch({ execPath: process.env.APPIMAGE, args: process.argv.slice(1) });
+  else app.relaunch();
+  app.quit();
+}
 
 function startBackend() {
   const args = ["-m", "nfc_login", "--web-ui", String(PORT)];
@@ -186,8 +207,21 @@ function startBackend() {
   if (!fs.existsSync(path.join(HOME, "nfc_login"))) {
     return fail("python", "not found", `No rpi-login-system in ${HOME}. Use --home to point at it.`);
   }
-  const child = spawn(python(), args, { cwd: HOME, env: { ...process.env, PYTHONUNBUFFERED: "1" } });
+  const child = spawn(python(), args, {
+    cwd: HOME,
+    env: { ...process.env, PYTHONUNBUFFERED: "1", NFC_KIOSK_CONTROL_FD: "3" },
+    stdio: ["ignore", "pipe", "pipe", "pipe"],
+  });
   backend = child;
+  let control = "";
+  child.stdio[3].on("data", chunk => {
+    control += String(chunk);
+    const lines = control.split("\n");
+    control = lines.pop();
+    for (const line of lines) {
+      if (backend === child && Object.hasOwn(CONTROL, line)) CONTROL[line]();
+    }
+  });
   let buffer = "";
   const read = chunk => {
     process.stdout.write(chunk);
@@ -267,15 +301,19 @@ function stopBackend() {
 
 async function shutdown() {
   quitting = true;
+  // A restart leaves the database running for the new copy of the app.
+  const stopDatabase = startedDatabase && !restarting;
   if (win) {
     ready = false;
     resetSteps();
-    status = { title: "Shutting down…", message: "Stopping the kiosk" +
-               (startedDatabase ? " and the database." : ".") };
+    status = restarting
+      ? { title: "Restarting the kiosk…", message: "Back in a few seconds." }
+      : { title: "Shutting down…", message: "Stopping the kiosk" +
+          (stopDatabase ? " and the database." : ".") };
     showStatusPage();
   }
   await stopBackend();
-  if (startedDatabase) await run("sudo", ["-n", "systemctl", "stop", "mariadb"], 30_000);
+  if (stopDatabase) await run("sudo", ["-n", "systemctl", "stop", "mariadb"], 30_000);
 }
 
 function createWindow() {

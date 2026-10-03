@@ -12,7 +12,8 @@ WorkingDirectory=/home/pi/rpi-login-system
 Environment=DISPLAY=:0
 Environment=XAUTHORITY=/home/pi/.Xauthority
 ExecStart=/home/pi/rpi-login-system/.venv/bin/python -m nfc_login --config /home/pi/rpi-login-system/config.toml
-Restart=always
+# on-failure: "Close the kiosk app" (admin menu) exits cleanly and stays closed.
+Restart=on-failure
 RestartSec=5
 
 [Install]

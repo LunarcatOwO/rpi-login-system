@@ -1,7 +1,7 @@
 {
   "name": "nfc-kiosk",
   "productName": "NFC Kiosk",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Desktop app for the NFC sign-in kiosk: starts the Python kiosk and shows its screen fullscreen.",
   "main": "main.js",
   "license": "MIT",

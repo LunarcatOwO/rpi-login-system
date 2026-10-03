@@ -66,7 +66,8 @@ def test_enrolling_needs_admin_pin(services):
     press(controller, "*")
     assert press(controller, "*").title == "Admin PIN"
     assert press(controller, "2468#").title == "Admin menu"
-    press(controller, "1")
+    assert press(controller, "1").title == "People"
+    press(controller, "2")
     screen = press(controller, "B001")                   # auto-submits after three digits
     assert controller.state == kc.ENROLL_SCAN and "taylor" in screen.lines[0]
     screen = tap(controller, reader, "04BEEF")
@@ -123,13 +124,13 @@ def test_admin_adjust_hours_on_keypad(services):
     controller, _reader, users = make(services)
     users.set_admin_pin("2468")
     users.add("taylor", "A")
-    press(controller, "*2468#2A001")
+    press(controller, "*2468#21A001")
     assert controller.state == kc.ADJUST_AMOUNT
     screen = press(controller, "130")
     assert screen.entry == "130  =  1h 30m"
     screen = press(controller, "A")
     assert screen.title == "Added 1h 30m" and "New season total: 1h 30m" in screen.lines
-    screen = press(controller, "*2468#2A001")
+    screen = press(controller, "*2468#21A001")
     screen = press(controller, "200B")
     assert screen.tone == "error" and "only has 1h 30m" in screen.lines[0]
     screen = press(controller, "45B")
@@ -141,8 +142,9 @@ def test_admin_who_is_here(services):
     users.set_admin_pin("2468")
     users.enroll_tag("CAFE", users.add("taylor", "D")["id"])
     tap(controller, reader, "CAFE")
-    screen = press(controller, "*2468#3")
+    screen = press(controller, "*2468#23")
     assert screen.title == "Here now: 1" and screen.lines[0].startswith("D001  taylor")
+    assert press(controller, "*").title == "Hours and sign-ins"
     assert press(controller, "*").title == "Admin menu"
     press(controller, "*")
     assert controller.state == kc.IDLE
@@ -199,27 +201,26 @@ def test_admin_changes_someones_team(services):
     controller, _reader, users = make(services)
     users.set_admin_pin("2468")
     users.add("taylor", "A")
-    screen = press(controller, "*2468#6A001")
+    screen = press(controller, "*2468#14A001")
     assert controller.state == kc.PICK_TEAM and "Currently: Robot (A001)" in screen.lines
     screen = press(controller, "D")                           # letter keys work too
     assert screen.title == "Team changed" and "Their ID is now D001." in screen.lines
     assert users.get_by_code("D001")["username"] == "taylor"
-    press(controller, "*2468#6D001")
+    press(controller, "*2468#14D001")
     assert press(controller, "*").title == "Change team: user ID"   # back a step
 
 
 def test_admin_adds_a_user_on_the_screen_keyboard(services):
     controller, reader, users = make(services)
     users.set_admin_pin("2468")
-    press(controller, "*2468#")
-    screen = press(controller, "7")
+    press(controller, "*2468#1")
+    screen = press(controller, "1")
     assert screen.title == "Add a user: team" and "2  Impact" in screen.lines
     screen = press(controller, "2")
-    assert screen.keyboard and screen.entry == "_"
+    assert screen.keyboard == "name" and screen.entry == "_"
     for char in " sam  le\bee":
         screen = controller.handle_char(char)
     assert screen.entry == "Sam Lee_"
-    assert press(controller, "5").entry == "Sam Lee_"      # keypad digits don't type
     screen = controller.handle_char("\n")
     assert screen.title == "Added Sam Lee" and "Their ID is B001." in screen.lines
     assert not screen.keyboard
@@ -232,7 +233,7 @@ def test_adding_a_user_without_a_card_and_name_errors(services):
     controller, _reader, users = make(services)
     users.set_admin_pin("2468")
     users.add("Sam Lee", "A")
-    press(controller, "*2468#71")
+    press(controller, "*2468#111")
     assert controller.handle_char("\n").lines[0] == "Type their name first."
     for char in "sam lee\n":
         screen = controller.handle_char(char)
@@ -250,8 +251,9 @@ def test_adding_a_user_without_a_card_and_name_errors(services):
 def test_admin_closes_the_kiosk_app(services):
     controller, _reader, users = make(services)
     users.set_admin_pin("2468")
-    screen = press(controller, "*2468#8")
+    screen = press(controller, "*2468#36")
     assert screen.title == "Close the kiosk app?" and not screen.close_app
-    assert press(controller, "*").title == "Admin menu"
-    screen = press(controller, "8#")
+    assert press(controller, "*").title == "System"
+    screen = press(controller, "6#")
     assert screen.close_app and controller.state == kc.IDLE
+    assert screen.lines == ["To start it again, restart the Pi."]
