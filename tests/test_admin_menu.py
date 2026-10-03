@@ -455,12 +455,12 @@ def test_touch_and_keypad_lines(services):
     controller, users, _jobs, _published, _system = make(services)
     idle = controller.idle_screen()
     assert "A  Robot      B  Impact" in idle.lines and "*  Admin menu" in idle.lines
-    assert "#  Type your ID on the screen" in idle.lines
+    assert "#  Type your ID" in idle.lines
     assert idle.lines[1].endswith("Mentors: numbers only.")
     screen = press(controller, "#")                           # # on the start screen: type an ID
-    assert controller.state == kc.USER_ID and screen.keyboard == "keypad"
+    assert controller.state == kc.USER_ID and screen.keyboard is None   # on the keypad
     assert press(controller, "*").title == "Tap your card"
-    assert press(controller, "*").keyboard == "keypad"        # admin PIN
+    assert press(controller, "*").keyboard is None            # admin PIN: on the keypad
     assert press(controller, "2468#1").keyboard is None       # menus are buttons already
     screen = press(controller, "1")
     assert screen.keyboard is None and screen.lines[-1] == "*  back"

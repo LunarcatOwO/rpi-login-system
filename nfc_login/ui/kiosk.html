@@ -43,18 +43,6 @@ button.key:active { background: var(--panel); }
 button.key b { flex: none; display: grid; place-items: center; width: 28px; height: 28px;
   border-radius: 4px; background: var(--bg); color: var(--prompt); font: bold 17px var(--mono); }
 button.key span { min-width: 0; overflow-wrap: anywhere; }
-/* The 4x4 keypad on screen, for IDs, PINs and amounts; it takes the side panel's place. */
-.keypad { display: none; width: 340px; margin: 10px 10px 10px 0; padding: 6px; gap: 6px;
-  background: var(--panel); grid-template: repeat(4, 1fr) / repeat(4, 1fr); }
-body.keypad-on .keypad { display: grid; }
-body.keypad-on aside { display: none; }
-.keypad button { border: 0; border-radius: 6px; background: var(--tab); color: var(--text);
-  font: bold 30px var(--sans); cursor: inherit; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 2px; padding: 0; }
-.keypad button.letter { color: var(--info); }
-.keypad button.enter { background: var(--success); color: var(--bg); }
-.keypad button small { font: 12px var(--sans); }
-.keypad button:active { background: var(--panel); color: var(--text); }
 aside { width: 340px; margin: 10px 10px 10px 0; background: var(--panel); display: flex;
   flex-direction: column; min-height: 0; }
 .tabs { display: flex; }
@@ -123,7 +111,6 @@ body.typing aside { display: none; }
     <div class="lines" id="lines"></div>
     <div class="kbd" id="kbd"></div>
   </section>
-  <div class="keypad" id="keypad"></div>
   <aside>
     <div class="tabs">
       <button id="tab-here" class="on">Here now</button>
@@ -168,7 +155,6 @@ function showScreen(s) {
     if (letters) drawKeys();
   }
   document.body.classList.toggle("typing", letters);
-  document.body.classList.toggle("keypad-on", mode === "keypad");
 }
 
 function typing() { return document.body.classList.contains("typing"); }
@@ -237,19 +223,6 @@ function drawLines(lines) {
   }));
   $("lines").scrollTop = 0;
 }
-
-// The on-screen 4x4 keypad, laid out like the real one.
-const KEYPAD = ["123A", "456B", "789C", "*0#D"], CAPTIONS = { "#": "Enter", "*": "Delete / Back" };
-$("keypad").append(...[...KEYPAD.join("")].map(key => {
-  const b = document.createElement("button");
-  b.textContent = key;
-  if (CAPTIONS[key]) b.append(Object.assign(document.createElement("small"),
-                                            { textContent: CAPTIONS[key] }));
-  if ("ABCD".includes(key)) b.className = "letter";
-  if (key === "#") b.className = "enter";
-  b.onclick = () => sendKey(key);
-  return b;
-}));
 
 // On-screen keyboards, as rows of keys. "name" types people's names (letters go in
 // lower case; the kiosk capitalises them). "text" is a full keyboard for Wi-Fi

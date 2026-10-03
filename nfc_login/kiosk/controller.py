@@ -174,7 +174,7 @@ class Screen:
     hold_seconds: float | None = None   # return to idle after this long
     refresh_leaderboard: bool = False   # also refreshes the "here now" list
     sound: str | None = None            # buzzer pattern; by default from the tone
-    # on-screen keys: "name" / "text" (letters, for names / passwords), "keypad" (the 4x4 keypad)
+    # on-screen keys: "name" / "text" (letters, for names / passwords)
     keyboard: str | None = None
     close_app: bool = False             # the window should close itself
     restart_app: bool = False           # the app should restart itself (e.g. after an update)
@@ -260,7 +260,7 @@ class KioskController:
         if self.mentors:
             hint += " Mentors: numbers only."
         lines = ["Hold your card on the reader to sign in or out.", hint, *rows,
-                 "#  Type your ID on the screen", "Keypad: # enter, * backspace", "*  Admin menu"]
+                 "#  Type your ID", "Keypad: # enter, * backspace", "*  Admin menu"]
         if self._installing():
             lines = ["Installing an update: cards still work.", *lines]
         return Screen("Tap your card", lines, tone="info")
@@ -475,7 +475,7 @@ class KioskController:
             self.state = USER_ID
             return self._id_key(key)
         if key == "#":
-            return self._go(USER_ID, {})      # type an ID on the screen's keypad
+            return self._go(USER_ID, {})      # then type the ID on the keypad
         return self.idle_screen()
 
     # -- typing an ID (team letter + digits, or a mentor's digits)
@@ -1111,7 +1111,7 @@ class KioskController:
                 "",
                 "Admin: type the PIN, then #",
                 "*  back to the teams",
-            ], "prompt", entry="•" * len(self.buffer), keyboard="keypad")
+            ], "prompt", entry="•" * len(self.buffer))
         if state == NEW_TEAM:
             choices = [f"{key}  {self.users.team_name(letter)}"
                        for key, letter in self.team_choices.items()]
@@ -1186,8 +1186,7 @@ class KioskController:
             hint = "Team letter, then the number."
             if self.mentors:
                 hint += " Mentors: numbers only."
-            return Screen(title, [hint, "# = enter early,  * = back"], "prompt", entry=shown,
-                          keyboard="keypad")
+            return Screen(title, [hint, "# = enter early,  * = back"], "prompt", entry=shown)
         if state in PIN_STATES:
             return self._pin_screen()
         if state == ADJUST_AMOUNT:
@@ -1201,15 +1200,10 @@ class KioskController:
                 "130 = 1h 30m,  45 = 45m,  200 = 2h",
                 "",
                 "A  Add       B  Subtract       *  back",
-            ], "prompt", entry=f"{self.buffer or '0'}  =  {amount}", keyboard="keypad")
+            ], "prompt", entry=f"{self.buffer or '0'}  =  {amount}")
         return self.idle_screen()
 
     def _pin_screen(self) -> Screen:
-        screen = self._pin_screen_text()
-        screen.keyboard = "keypad"
-        return screen
-
-    def _pin_screen_text(self) -> Screen:
         state, ctx = self.state, self.context
         dots = "•" * len(self.buffer)
         if state == USERPIN_NEW:

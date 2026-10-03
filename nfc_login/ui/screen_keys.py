@@ -1,4 +1,4 @@
-"""Touch versions of the keypad, shared by the kiosk windows.
+"""Touch buttons for the keypad's menu keys, shared by the kiosk windows.
 
 A screen line made only of "K  label" parts (K one keypad key, two spaces,
 then the label; parts separated by three or more spaces) is drawn as a row of
@@ -13,12 +13,6 @@ import re
 
 _PART = re.compile(r"([0-9A-D*#])  (\S.*)")
 _GAP = re.compile(r" {3,}")
-
-# The 4x4 keypad as drawn on screen for keyboard="keypad", with the captions
-# that say what # and * do.
-KEYPAD = ["123A", "456B", "789C", "*0#D"]
-KEYPAD_CAPTIONS = {"#": "Enter", "*": "Delete / Back"}
-
 
 def key_parts(line: str) -> list[tuple[str, str]] | None:
     """[(key, label), ...] if `line` is only "K  label" parts, else None (plain text)."""

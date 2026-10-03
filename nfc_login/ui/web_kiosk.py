@@ -215,8 +215,7 @@ def screen_json(screen: Screen) -> dict:
 
 
 def keyboard_mode(screen: Screen) -> str | None:
-    """The on-screen keys a screen wants: None, "name" or "text" (letter keyboards),
-    or "keypad" (the 4x4 keypad, for IDs, PINs and amounts)."""
+    """The on-screen keys a screen wants: None, "name" or "text" (letter keyboards)."""
     kb = screen.keyboard
     if isinstance(kb, str):
         return kb or None

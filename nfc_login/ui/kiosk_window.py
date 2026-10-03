@@ -17,10 +17,9 @@ refreshed every few seconds and after every scan) and the season leaderboard.
 A list too long for the panel shows a page at a time and turns its pages by
 itself; a name too long for its column slides sideways to show its end.
 While a name or Wi-Fi password is being typed, an on-screen keyboard takes
-the side panel's place; while an ID, PIN or amount is, an on-screen 4x4 keypad
-does.
+the side panel's place. IDs, PINs and amounts are typed on the keypad.
 
-Everything works by touch as well as on the keypad: a screen line of "K  label"
+Menus work by touch as well as on the keypad: a screen line of "K  label"
 parts (see Screen) is drawn as buttons that press those keys.
 
 Hardware threads never touch Tk directly: they put Screens on a queue that
@@ -39,7 +38,7 @@ from datetime import datetime
 
 from nfc_login.kiosk.controller import KioskController, Screen
 from nfc_login.services import timefmt
-from nfc_login.ui.screen_keys import KEYPAD, KEYPAD_CAPTIONS, blocks, menu_columns
+from nfc_login.ui.screen_keys import blocks, menu_columns
 
 log = logging.getLogger(__name__)
 
@@ -209,17 +208,6 @@ class KioskWindow:
         self._lines_drawn: tuple | None = None
         self.keyboard = tk.Frame(status, bg=COLORS["bg"])
 
-        # The 4x4 keypad on screen (keyboard="keypad"), in the side panel's place.
-        self.keypad = tk.Frame(body, bg=COLORS["panel"], width=SIDE_WIDTH)
-        self.keypad.pack_propagate(False)
-        self.keypad.grid_propagate(False)
-        for i in range(4):
-            self.keypad.grid_rowconfigure(i, weight=1, uniform="row")
-            self.keypad.grid_columnconfigure(i, weight=1, uniform="col")
-        for r, row in enumerate(KEYPAD):
-            for c, key in enumerate(row):
-                self._keypad_key(key).grid(row=r, column=c, sticky="nsew", padx=3, pady=3)
-
         self._select_tab("here")
         if simulated_reader is not None:
             self._build_simulator(simulated_reader)
@@ -269,21 +257,20 @@ class KioskWindow:
         self.root.after_idle(self._draw_keys)
 
     def _show_keyboard(self, mode: str | None) -> None:
-        # A keyboard takes the side panel's room, so the keys are big enough to hit:
-        # the 4x4 keypad in the panel's place, a letter keyboard under the text.
+        # A letter keyboard takes the side panel's room, so its keys are big enough
+        # to hit; it goes under the text.
         if mode == self._kb_mode:
             return
         self._kb_mode = mode
         self._kb_page, self._kb_shift = "letters", False
-        for widget in (self.side, self.keypad, self.keyboard):
+        for widget in (self.side, self.keyboard):
             widget.pack_forget()
         if mode in ("name", "text"):
             self._draw_keys()
             # Packed before the text, so the text gives way on a small screen, not the keys.
             self.keyboard.pack(fill="x", side="bottom", pady=(6, 0), before=self.lines_frame)
         else:
-            panel = self.keypad if mode == "keypad" else self.side
-            panel.pack(side="right", fill="y", padx=(0, 10), pady=10, before=self.status_frame)
+            self.side.pack(side="right", fill="y", padx=(0, 10), pady=10, before=self.status_frame)
             self._page_at = time.monotonic()    # the page shows in full again
         self.title_label.config(wraplength=self._wrap())
 
@@ -321,20 +308,6 @@ class KioskWindow:
         tk.Label(frame, text=label, font=("DejaVu Sans", -16), anchor="w", justify="left",
                  fg=COLORS["text"], bg=COLORS["tab"], wraplength=max(60, wrap - 52),
                  ).pack(side="left", fill="x", expand=True, padx=(0, 6), pady=4)
-        self._touchable(frame, lambda: self.press(key))
-        return frame
-
-    def _keypad_key(self, key: str) -> tk.Frame:
-        """One key of the on-screen 4x4 keypad, with what # and * do under them."""
-        bg = COLORS["success"] if key == "#" else COLORS["tab"]
-        fg = COLORS["bg"] if key == "#" else (COLORS["info"] if key in "ABCD" else COLORS["text"])
-        frame = tk.Frame(self.keypad, bg=bg)
-        inner = tk.Frame(frame, bg=bg)
-        inner.place(relx=0.5, rely=0.5, anchor="center")
-        tk.Label(inner, text=key, font=("DejaVu Sans", -28, "bold"), fg=fg, bg=bg).pack()
-        if key in KEYPAD_CAPTIONS:
-            tk.Label(inner, text=KEYPAD_CAPTIONS[key], font=("DejaVu Sans", -12), fg=fg,
-                     bg=bg).pack()
         self._touchable(frame, lambda: self.press(key))
         return frame
 
@@ -625,7 +598,7 @@ def slide(name: str, width: int, ms: float) -> str:
 
 
 def keyboard_mode(screen: Screen) -> str | None:
-    """The on-screen keys a screen wants: None, "name", "text" or "keypad"."""
+    """The on-screen keys a screen wants: None, "name" or "text"."""
     kb = screen.keyboard
     if isinstance(kb, str):
         return kb or None

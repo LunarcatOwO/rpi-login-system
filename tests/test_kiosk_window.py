@@ -1,5 +1,5 @@
-"""Touch screen versions of the keypad (nfc_login/ui/screen_keys.py, kiosk.html,
-kiosk_window.py): "K  label" lines become buttons, and the 4x4 keypad on screen."""
+"""Touch buttons for the keypad's menu keys (nfc_login/ui/screen_keys.py, kiosk.html,
+kiosk_window.py): "K  label" lines become buttons."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from nfc_login.kiosk.controller import Screen
-from nfc_login.ui.screen_keys import KEYPAD, blocks, key_parts, menu_columns
+from nfc_login.ui.screen_keys import blocks, key_parts, menu_columns
 
 PAGE = Path(__file__).parents[1] / "nfc_login" / "ui" / "kiosk.html"
 
@@ -66,10 +66,6 @@ def test_menus_of_five_or_more_take_two_columns_filled_downwards():
     assert menu_columns(four) == [four]
     assert menu_columns(nine) == [list("12345"), list("678*")]
     assert menu_columns(list("1234567*")) == [list("1234"), list("567*")]
-
-
-def test_keypad_layout():
-    assert KEYPAD == ["123A", "456B", "789C", "*0#D"]
 
 
 def test_web_page_parses_lines_the_same_way():
@@ -211,29 +207,12 @@ def test_tk_key_lines_are_buttons(window):
     tap(window, nxt, "#")
 
 
-def test_tk_keypad_takes_the_side_panels_place(window):
-    window.show(Screen("Admin PIN", ["Then press #", "*  back"], "prompt", entry="••",
-                       keyboard="keypad"))
-    window.root.update()
-    assert window.keypad.winfo_ismapped() and not window.side.winfo_ismapped()
-    assert label(window, window.keypad, "Enter") and label(window, window.keypad,
-                                                           "Delete / Back")
-    tap(window, label(window, window.keypad, "#"), "#")
-    tap(window, label(window, window.keypad, "7"), "7")
-    tap(window, label(window, window.keypad, "D"), "D")
-    assert window.keypad.winfo_children()[0].winfo_height() >= 44
-    window.show(Screen("Tap your card"))
-    window.root.update()
-    assert window.side.winfo_ismapped() and not window.keypad.winfo_ismapped()
-
-
 def test_tk_letter_keyboards_still_work(window):
     from nfc_login.ui.kiosk_window import TEXT_KEYS
     assert "`" in TEXT_KEYS["symbols"][3]
     window.show(Screen("Rename R001", ["#  done      *  delete / back"], keyboard="name"))
     window.root.update()
     assert window.keyboard.winfo_ismapped() and not window.side.winfo_ismapped()
-    assert not window.keypad.winfo_ismapped()
 
 
 def test_tk_footer_always_shows(window):
