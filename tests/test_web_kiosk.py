@@ -112,11 +112,11 @@ def test_keyboard_mode_reaches_the_page(kiosk):
     assert next_screen(q, "No keyboard")["keyboard"] is None
 
 
-def test_key_buttons_and_no_onscreen_keypad(kiosk):
+def test_no_onscreen_keypad_or_menu_buttons(kiosk):
     kiosk, users, base = kiosk
     users.set_admin_pin("2468")
     q = kiosk.listen()
-    # The idle screen's "*  Admin menu" button posts /key; the PIN goes on the keypad.
+    # Keys come from the keypad (or the computer keyboard); the PIN goes on the keypad.
     post(base + "/key", "key=*")
     pin = next_screen(q, "Admin PIN")
     assert pin["keyboard"] is None and "*  back" in pin["lines"]
@@ -125,7 +125,7 @@ def test_key_buttons_and_no_onscreen_keypad(kiosk):
     post(base + "/key", "key=#")      # "#  Type your ID" on the idle screen
     assert next_screen(q, "Your user ID")["keyboard"] is None
     page = urllib.request.urlopen(base + "/").read().decode()
-    assert 'id="keypad"' not in page and "function keyParts(" in page
+    assert 'id="keypad"' not in page and "button.key" not in page
 
 
 def test_password_symbols_survive_the_trip(kiosk, monkeypatch):

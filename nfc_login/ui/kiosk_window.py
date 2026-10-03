@@ -19,9 +19,6 @@ itself; a name too long for its column slides sideways to show its end.
 While a name or Wi-Fi password is being typed, an on-screen keyboard takes
 the side panel's place. IDs, PINs and amounts are typed on the keypad.
 
-Menus work by touch as well as on the keypad: a screen line of "K  label"
-parts (see Screen) is drawn as buttons that press those keys.
-
 Hardware threads never touch Tk directly: they put Screens on a queue that
 the Tk main loop drains.
 """
@@ -38,7 +35,6 @@ from datetime import datetime
 
 from nfc_login.kiosk.controller import KioskController, Screen
 from nfc_login.services import timefmt
-from nfc_login.ui.screen_keys import blocks, menu_columns
 
 log = logging.getLogger(__name__)
 
@@ -202,7 +198,7 @@ class KioskWindow:
         self.title_label = tk.Label(status, font=big, anchor="w", justify="left",
                                     bg=COLORS["bg"], wraplength=STATUS_WRAP)
         self.title_label.pack(fill="x")
-        # The screen's lines: text, and buttons for its "K  label" lines (_draw_lines).
+        # The screen's lines (_draw_lines).
         self.lines_frame = tk.Frame(status, bg=COLORS["bg"])
         self.lines_frame.pack(fill="both", expand=True, pady=(8, 0))
         self._lines_drawn: tuple | None = None
@@ -278,67 +274,23 @@ class KioskWindow:
         """How wide the screen's text may be: all the width while typing on letter keys."""
         return 760 if self._kb_mode in ("name", "text") else STATUS_WRAP
 
-    # ------------------------------------------------------------ touch buttons
-
-    def _touchable(self, frame: tk.Frame, command) -> None:
-        """Make a frame and everything in it one button: darker while held (the parts
-        in the frame's colour), `command` on release over it, like a tk.Button."""
-        parts, i = [frame], 0
-        while i < len(parts):
-            parts += parts[i].winfo_children()
-            i += 1
-        normal = frame.cget("bg")
-        shaded = [w for w in parts if w.cget("bg") == normal]
-
-        def up(event):
-            for w in shaded:
-                w.config(bg=normal)
-            if self.root.winfo_containing(event.x_root, event.y_root) in parts:
-                command()
-
-        for w in parts:
-            w.bind("<ButtonPress-1>", lambda _e: [p.config(bg=COLORS["panel"]) for p in shaded])
-            w.bind("<ButtonRelease-1>", up)
-
-    def _key_button(self, parent, key: str, label: str, wrap: int) -> tk.Frame:
-        """A button for a "K  label" line part: the key in a badge, then the label."""
-        frame = tk.Frame(parent, bg=COLORS["tab"])
-        tk.Label(frame, text=key, width=2, font=("DejaVu Sans Mono", -17, "bold"),
-                 fg=COLORS["prompt"], bg=COLORS["bg"]).pack(side="left", padx=(7, 8))
-        tk.Label(frame, text=label, font=("DejaVu Sans", -16), anchor="w", justify="left",
-                 fg=COLORS["text"], bg=COLORS["tab"], wraplength=max(60, wrap - 52),
-                 ).pack(side="left", fill="x", expand=True, padx=(0, 6), pady=4)
-        self._touchable(frame, lambda: self.press(key))
-        return frame
-
     def _draw_lines(self, lines: list[str]) -> None:
-        """Draw a screen's lines: text, and its "K  label" lines as buttons."""
+        """Draw a screen's lines as text (the keypad does the choosing)."""
         wrap = self._wrap()
         if self._lines_drawn == (tuple(lines), wrap):
             return    # e.g. only the typed entry changed: no flicker
         self._lines_drawn = (tuple(lines), wrap)
         for child in self.lines_frame.winfo_children():
             child.destroy()
-        for kind, content in blocks(lines):
-            if kind == "text":
-                if not content.strip():
-                    tk.Frame(self.lines_frame, bg=COLORS["bg"], height=8).pack(fill="x")
-                    continue
-                # 18 px, as on the web page: "Hold your card on the reader to sign in or
-                # out." just fits beside the side panel.
-                tk.Label(self.lines_frame, text=content, font=("DejaVu Sans", -18), anchor="w",
-                         justify="left", fg=COLORS["text"], bg=COLORS["bg"],
-                         wraplength=wrap).pack(fill="x")
+        for line in lines:
+            if not line.strip():
+                tk.Frame(self.lines_frame, bg=COLORS["bg"], height=8).pack(fill="x")
                 continue
-            grid = tk.Frame(self.lines_frame, bg=COLORS["bg"])
-            grid.pack(fill="x", pady=1)
-            columns = [[part] for part in content] if kind == "row" else menu_columns(content)
-            for c, column in enumerate(columns):
-                grid.grid_columnconfigure(c, weight=1, uniform="col")
-                for r, (key, label) in enumerate(column):
-                    grid.grid_rowconfigure(r, minsize=50)   # 46 px buttons
-                    self._key_button(grid, key, label, wrap // len(columns)).grid(
-                        row=r, column=c, sticky="nsew", padx=2, pady=2)
+            # 18 px, as on the web page: "Hold your card on the reader to sign in or
+            # out." just fits beside the side panel.
+            tk.Label(self.lines_frame, text=line, font=("DejaVu Sans", -18), anchor="w",
+                     justify="left", fg=COLORS["text"], bg=COLORS["bg"],
+                     wraplength=wrap).pack(fill="x")
 
     def _build_simulator(self, reader) -> None:
         sim = tk.Frame(self.root, bg="#2a1f00")

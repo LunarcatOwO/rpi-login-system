@@ -29,9 +29,9 @@ stats back onto their card along with a link a phone can open.
   page or the command line. Every change is logged with a reason.
 - **Only admins can enroll cards** (kiosk admin menu behind the admin PIN, or
   the admin CLI on the Pi).
-- **Keypad** (Da Vinci Kit 4x4): IDs, PINs and amounts are typed on it, and
-  every menu choice is also a button on the touchscreen. Look yourself up or
-  sign in by ID + PIN when you forget your card.
+- **Keypad** (Da Vinci Kit 4x4): every menu choice, ID, PIN and amount is
+  entered on it; the touchscreen is only for typing names. Look yourself up
+  or sign in by ID + PIN when you forget your card.
 - **Admin menu on the kiosk itself** (People, Hours, System): add people,
   enroll or remove cards, set PINs, change teams, adjust hours, Wi-Fi,
   updates, restart and shut down. No keyboard or web page needed.

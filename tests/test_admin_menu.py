@@ -450,8 +450,8 @@ def test_wifi_switched_off_is_switched_on(services):
     assert published.pop().title == "Wi-Fi networks" and not system.radio_off
 
 
-def test_touch_and_keypad_lines(services):
-    """Every key line follows the "K  label" form the windows turn into buttons."""
+def test_keypad_lines_and_keyboards(services):
+    """Menu lines name the key to press; only names and passwords get an on-screen keyboard."""
     controller, users, _jobs, _published, _system = make(services)
     idle = controller.idle_screen()
     assert "A  Robot      B  Impact" in idle.lines and "*  Admin menu" in idle.lines
@@ -461,7 +461,7 @@ def test_touch_and_keypad_lines(services):
     assert controller.state == kc.USER_ID and screen.keyboard is None   # on the keypad
     assert press(controller, "*").title == "Tap your card"
     assert press(controller, "*").keyboard is None            # admin PIN: on the keypad
-    assert press(controller, "2468#1").keyboard is None       # menus are buttons already
+    assert press(controller, "2468#1").keyboard is None       # menus: pick on the keypad
     screen = press(controller, "1")
     assert screen.keyboard is None and screen.lines[-1] == "*  back"
     screen = press(controller, "1")

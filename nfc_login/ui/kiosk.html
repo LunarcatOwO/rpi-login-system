@@ -27,22 +27,12 @@ header .clock { font-size: 20px; font-variant-numeric: tabular-nums; }
 main { flex: 1; display: flex; min-height: 0; }
 .status { flex: 1; padding: 14px 16px; min-width: 0; display: flex; flex-direction: column; }
 .status h1 { margin: 0; font-size: 31px; line-height: 1.2; overflow-wrap: anywhere; }
-/* The screen's lines: text, and its "K  label" lines as buttons (drawLines). Too many
-   for the screen scroll by touch. */
+/* The screen's lines (drawLines). Too many for the screen scroll by touch. */
 .status .lines { margin-top: 12px; font-size: 18px; line-height: 1.35; min-height: 0;
   overflow: hidden auto; overscroll-behavior: contain; display: flex; flex-direction: column;
   scrollbar-width: none; }
 .lines p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .lines p.gap { height: 8px; }
-.lines .keys { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
-  gap: 6px; margin: 3px 0; flex-shrink: 0; }
-button.key { display: flex; align-items: center; gap: 8px; min-height: 46px; min-width: 0;
-  padding: 4px 10px 4px 7px; border: 0; border-radius: 6px; background: var(--tab);
-  color: var(--text); font: 16px/1.2 var(--sans); text-align: left; cursor: inherit; }
-button.key:active { background: var(--panel); }
-button.key b { flex: none; display: grid; place-items: center; width: 28px; height: 28px;
-  border-radius: 4px; background: var(--bg); color: var(--prompt); font: bold 17px var(--mono); }
-button.key span { min-width: 0; overflow-wrap: anywhere; }
 aside { width: 340px; margin: 10px 10px 10px 0; background: var(--panel); display: flex;
   flex-direction: column; min-height: 0; }
 .tabs { display: flex; }
@@ -159,67 +149,15 @@ function showScreen(s) {
 
 function typing() { return document.body.classList.contains("typing"); }
 
-// A line made only of "K  label" parts (K one keypad key, two spaces, the label;
-// parts three or more spaces apart) is drawn as buttons that press those keys.
-// The same as key_parts, blocks and menu_columns in nfc_login/ui/screen_keys.py.
-function keyParts(line) {
-  const parts = [];
-  for (const chunk of line.trim().split(/ {3,}/)) {
-    const m = /^([0-9A-D*#])  (\S.*)$/.exec(chunk);
-    if (!m) return null;
-    parts.push([m[1], m[2].trimEnd()]);
-  }
-  return parts;
-}
-
-// Lines grouped for drawing: ["text", line], ["row", parts] for a line of several
-// keys, ["menu", parts] for a run of one-key lines.
-function blocks(lines) {
-  const out = [];
-  for (const line of lines) {
-    const parts = keyParts(line), last = out[out.length - 1];
-    if (!parts) out.push(["text", line]);
-    else if (parts.length > 1) out.push(["row", parts]);
-    else if (last && last[0] === "menu") last[1].push(parts[0]);
-    else out.push(["menu", parts]);
-  }
-  return out;
-}
-
-// A menu's buttons in columns, filled downwards: two from five buttons on.
-function menuColumns(items) {
-  if (items.length < 5) return [items];
-  const half = Math.ceil(items.length / 2);
-  return [items.slice(0, half), items.slice(half)];
-}
-
 let drawnLines = null;
 function drawLines(lines) {
   const sig = JSON.stringify(lines);
   if (sig === drawnLines) return;   // e.g. only the typed entry changed
   drawnLines = sig;
-  $("lines").replaceChildren(...blocks(lines).map(([kind, content]) => {
-    if (kind === "text") {
-      const p = document.createElement("p");
-      if (content.trim()) p.textContent = content; else p.className = "gap";
-      return p;
-    }
-    const box = document.createElement("div");
-    box.className = "keys";
-    // A row is one grid row; a menu's columns fill downwards, their rows lined up.
-    const columns = kind === "row" ? content.map(part => [part]) : menuColumns(content);
-    box.style.gridTemplateRows = `repeat(${columns[0].length}, auto)`;
-    for (const [key, label] of columns.flat()) {
-      const b = document.createElement("button");
-      b.className = "key";
-      const k = document.createElement("b"), text = document.createElement("span");
-      k.textContent = key;
-      text.textContent = label;
-      b.append(k, text);
-      b.onclick = () => sendKey(key);
-      box.append(b);
-    }
-    return box;
+  $("lines").replaceChildren(...lines.map(line => {
+    const p = document.createElement("p");
+    if (line.trim()) p.textContent = line; else p.className = "gap";
+    return p;
   }));
   $("lines").scrollTop = 0;
 }

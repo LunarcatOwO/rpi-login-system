@@ -64,11 +64,12 @@ shown under the admin menu → 3 System → 1 System info.
 
 ![Live page](images/web-live.png)
 
-## Keypad and touchscreen
+## Keypad
 
-IDs, PINs and amounts are typed on the keypad. Every menu choice is also a
-button on the screen (it shows the key it stands for), so menus work by touch
-too. Names and Wi-Fi passwords are typed on an on-screen keyboard.
+Everything is done on the keypad: IDs, PINs, amounts and every menu choice
+(each one shows the key to press). The touchscreen is only for typing names
+and Wi-Fi passwords on an on-screen keyboard, and for switching the side
+panel between "Here now" and the leaderboard.
 
 ```
  1  2  3  A        A B C D   start typing a team member's ID (A007, B012...)

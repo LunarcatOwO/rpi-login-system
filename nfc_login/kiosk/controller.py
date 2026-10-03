@@ -160,11 +160,9 @@ HOURS_MENU_LINES = [
 class Screen:
     """What the display shows.
 
-    A line made only of "K  label" parts (K a keypad key, two spaces, then the
-    label; parts separated by three or more spaces, e.g. "#  yes      *  back")
-    describes keys to press. The windows draw such lines as buttons that press
-    that key when touched, so everything works by touch or keypad. Other lines
-    are plain text: don't put two spaces after a lone key character in them.
+    Choices are written "K  label" (a keypad key, two spaces, the label; several
+    on a line three or more spaces apart, e.g. "#  yes      *  back") and are made
+    on the keypad.
     """
 
     title: str
