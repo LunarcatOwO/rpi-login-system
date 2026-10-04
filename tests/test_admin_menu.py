@@ -142,12 +142,13 @@ def test_update_found_installs_and_restarts(services):
     controller, _users, jobs, published, _system = make(services)
     screen = press(controller, "*2468#32")
     assert screen.title == "Checking for updates…" and controller.state == kc.BUSY
+    assert screen.busy                                       # the windows show a spinner
     assert press(controller, "1*#") is None                  # keys wait for the job
     controller.keypad_timeout = -1
     assert controller.check_timeout() is None                # and so does the timeout
     jobs.run()
     screen = published.pop()
-    assert controller.state == kc.UPDATE_CONFIRM
+    assert controller.state == kc.UPDATE_CONFIRM and not screen.busy
     assert screen.title == "Update: 3 new changes" and "•  Fix the buzzer" in screen.lines
     controller.keypad_timeout = 30
     # The menus now point at the update.

@@ -4,14 +4,42 @@
 <meta charset="utf-8">
 <title>NFC Sign In</title>
 <style>
+  :root { --ease: cubic-bezier(.2, .7, .2, 1); }
   html, body { margin: 0; height: 100%; background: #101418; color: #e8edf2;
-    font-family: "DejaVu Sans", system-ui, sans-serif; cursor: none; overflow: hidden; }
-  body { display: grid; place-items: center; }
+    font-family: "DejaVu Sans", system-ui, sans-serif; cursor: none; overflow: hidden;
+    -webkit-font-smoothing: antialiased; }
+  body { display: grid; place-items: center; animation: fade-in .4s var(--ease); }
+  @keyframes fade-in { from { opacity: 0; } }
   .box { width: 520px; }
-  h1 { font-size: 28px; margin: 0 0 14px; }
+  .head { display: flex; align-items: center; gap: 16px; margin: 0 0 16px; }
+  h1 { font-size: 28px; margin: 0; }
   ul { list-style: none; padding: 0; margin: 0; font-size: 18px; }
-  li { display: flex; gap: 12px; padding: 4px 0; }
-  .icon { width: 1.2em; text-align: center; }
+  li { display: flex; align-items: center; gap: 12px; padding: 4px 0; transition: color .3s; }
+  li.wait { color: #8a97a6; }
+  .icon { width: 1.2em; height: 1.2em; display: grid; place-items: center; }
+  .icon b { animation: pop-in .3s var(--ease); font-weight: normal; }
+  @keyframes pop-in { from { opacity: 0; transform: scale(.4); } }
+  /* Dots that chase round a circle, like Windows' loading indicator. */
+  .spinner { --size: 40px; --dot: 5px; position: relative; width: var(--size); height: var(--size);
+    flex: none; color: #4aa3ff; }
+  .spinner.small { --size: 18px; --dot: 3px; }
+  .spinner.gone { visibility: hidden; }
+  .spinner i { position: absolute; inset: 0; opacity: 0; animation: orbit 5.5s infinite; }
+  .spinner i::after { content: ""; position: absolute; left: 50%; top: 0; width: var(--dot);
+    height: var(--dot); margin-left: calc(var(--dot) / -2); border-radius: 50%; background: currentColor; }
+  .spinner i:nth-child(2) { animation-delay: .24s; }
+  .spinner i:nth-child(3) { animation-delay: .48s; }
+  .spinner i:nth-child(4) { animation-delay: .72s; }
+  .spinner i:nth-child(5) { animation-delay: .96s; }
+  @keyframes orbit {
+    0% { transform: rotate(225deg); opacity: 1; animation-timing-function: ease-out; }
+    7% { transform: rotate(345deg); animation-timing-function: linear; }
+    30% { transform: rotate(455deg); animation-timing-function: ease-in-out; }
+    39% { transform: rotate(690deg); animation-timing-function: linear; }
+    70% { transform: rotate(815deg); opacity: 1; animation-timing-function: ease-out; }
+    75% { transform: rotate(945deg); animation-timing-function: ease-out; }
+    76%, 100% { transform: rotate(945deg); opacity: 0; }
+  }
   .detail { color: #8a97a6; margin-left: auto; font-size: 15px; max-width: 260px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ok .icon { color: #3ccf7a; } .off .icon { color: #8a97a6; }
@@ -24,32 +52,44 @@
 </head>
 <body>
 <div class="box">
-  <h1 id="title">Starting the kiosk…</h1>
+  <div class="head"><span class="spinner" id="spin"><i></i><i></i><i></i><i></i><i></i></span><h1 id="title">Starting the kiosk…</h1></div>
   <ul id="steps"></ul>
   <div id="message"></div>
   <pre id="log"></pre>
 </div>
 <script>
   // main.js calls setStatus() as each part of the system comes up.
-  const ICONS = { wait: "○", run: "◌", ok: "✓", off: "–", warn: "!", fail: "✗" };
+  const ICONS = { wait: "○", ok: "✓", off: "–", warn: "!", fail: "✗" };
+  const SPIN = "<i></i><i></i><i></i><i></i><i></i>";
   window.setStatus = ({ title, steps, message, log }) => {
     document.getElementById("title").textContent = title;
+    // The big spinner turns while things start; not once something has failed.
+    const failed = steps.some(s => s.state === "fail");
+    document.getElementById("spin").classList.toggle("gone", failed);
+    // Rows are updated in place, so a spinning step keeps spinning smoothly and a
+    // step that just finished pops its mark in.
     const list = document.getElementById("steps");
-    list.replaceChildren();
-    for (const s of steps) {
-      const li = document.createElement("li");
-      li.className = s.state;
-      const icon = document.createElement("span");
-      icon.className = "icon";
-      icon.textContent = ICONS[s.state] || "○";
-      const label = document.createElement("span");
+    while (list.children.length > steps.length) list.lastChild.remove();
+    steps.forEach((s, n) => {
+      let li = list.children[n];
+      if (!li) {
+        li = document.createElement("li");
+        li.innerHTML = '<span class="icon"></span><span class="label"></span><span class="detail"></span>';
+        list.append(li);
+      }
+      const [icon, label, detail] = li.children;
       label.textContent = s.label;
-      const detail = document.createElement("span");
-      detail.className = "detail";
       detail.textContent = s.detail || "";
-      li.append(icon, label, detail);
-      list.append(li);
-    }
+      if (li.className === s.state && icon.firstChild) return;
+      li.className = s.state;
+      if (s.state === "run") {
+        icon.innerHTML = `<span class="spinner small">${SPIN}</span>`;
+      } else {
+        const mark = document.createElement("b");
+        mark.textContent = ICONS[s.state] || "○";
+        icon.replaceChildren(mark);
+      }
+    });
     document.getElementById("message").textContent = message || "";
     document.getElementById("log").textContent = log || "";
   };

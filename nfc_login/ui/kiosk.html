@@ -9,36 +9,83 @@
 :root {
   --bg: #101418; --panel: #1b2129; --tab: #262e38; --text: #e8edf2; --muted: #8a97a6;
   --info: #4aa3ff; --success: #3ccf7a; --warning: #f2b33d; --error: #ff5c5c; --prompt: #c58cff;
+  --line: #29323d; --soft: #cfd8e2; --accent: var(--info);
+  --ease: cubic-bezier(.2, .7, .2, 1);
   --sans: "DejaVu Sans", "Noto Sans", system-ui, sans-serif;
   --mono: "DejaVu Sans Mono", "Noto Sans Mono", ui-monospace, monospace;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
-  font-family: var(--sans); overflow: hidden; user-select: none; }
-body { display: flex; flex-direction: column; }
+  font-family: var(--sans); overflow: hidden; user-select: none;
+  -webkit-font-smoothing: antialiased; }
+body { display: flex; flex-direction: column; animation: fade-in .4s var(--ease); }
+@keyframes fade-in { from { opacity: 0; } }
 body.kiosk { cursor: none; }
 header, footer { background: var(--panel); display: flex; align-items: center; padding: 0 12px; }
-header { height: 42px; gap: 16px; }
-header .name { font-weight: bold; font-size: 20px; flex: 1; }
+header { height: 42px; gap: 16px; box-shadow: inset 0 -1px var(--line); }
+header .name { font-weight: bold; font-size: 20px; flex: 1; letter-spacing: .01em;
+  display: flex; align-items: center; gap: 9px; }
+/* A small mark in the colour of what's on screen. */
+header .name::before { content: ""; width: 10px; height: 10px; border-radius: 3px;
+  background: var(--accent); transition: background-color .35s var(--ease); }
 header .season { color: var(--muted); font-size: 17px; }
-header .update { display: none; color: var(--info); font-size: 15px; align-items: center; gap: 4px; }
-header .update.on { display: flex; }
+header .update { display: none; color: var(--info); font-size: 14px; align-items: center; gap: 4px;
+  padding: 3px 9px 3px 7px; border-radius: 999px; background: rgba(74, 163, 255, .14); }
+header .update.on { display: flex; animation: pop-in .35s var(--ease); }
+@keyframes pop-in { from { opacity: 0; transform: scale(.85); } }
 header .clock { font-size: 20px; font-variant-numeric: tabular-nums; }
 main { flex: 1; display: flex; min-height: 0; }
-.status { flex: 1; padding: 14px 16px; min-width: 0; display: flex; flex-direction: column; }
-.status h1 { margin: 0; font-size: 31px; line-height: 1.2; overflow-wrap: anywhere; }
+.status { flex: 1; padding: 14px 16px 14px 24px; min-width: 0; display: flex; flex-direction: column;
+  position: relative; }
+/* A bar down the left edge in the screen's colour (success green, error red, ...). */
+.status::before { content: ""; position: absolute; left: 10px; top: 18px; bottom: 18px; width: 4px;
+  border-radius: 2px; background: var(--accent); transition: background-color .35s var(--ease); }
+.status h1 { margin: 0; font-size: 31px; line-height: 1.2; overflow-wrap: anywhere;
+  display: flex; align-items: center; gap: 14px; letter-spacing: -.005em; }
+#title { color: var(--accent); transition: color .35s var(--ease); min-width: 0; }
+/* While the kiosk waits on something (Wi-Fi, an update): dots that chase round a
+   circle, like Windows'. Only transform and opacity move, so it's cheap on a Pi. */
+.spinner { --size: 28px; --dot: 4px; position: relative; width: var(--size); height: var(--size);
+  flex: none; color: var(--accent); display: none; }
+.busy .spinner, .spinner.on { display: block; }
+.spinner i { position: absolute; inset: 0; opacity: 0; animation: orbit 5.5s infinite; }
+.spinner i::after { content: ""; position: absolute; left: 50%; top: 0; width: var(--dot);
+  height: var(--dot); margin-left: calc(var(--dot) / -2); border-radius: 50%; background: currentColor; }
+.spinner i:nth-child(2) { animation-delay: .24s; }
+.spinner i:nth-child(3) { animation-delay: .48s; }
+.spinner i:nth-child(4) { animation-delay: .72s; }
+.spinner i:nth-child(5) { animation-delay: .96s; }
+@keyframes orbit {
+  0% { transform: rotate(225deg); opacity: 1; animation-timing-function: ease-out; }
+  7% { transform: rotate(345deg); animation-timing-function: linear; }
+  30% { transform: rotate(455deg); animation-timing-function: ease-in-out; }
+  39% { transform: rotate(690deg); animation-timing-function: linear; }
+  70% { transform: rotate(815deg); opacity: 1; animation-timing-function: ease-out; }
+  75% { transform: rotate(945deg); animation-timing-function: ease-out; }
+  76%, 100% { transform: rotate(945deg); opacity: 0; }
+}
+/* A result screen's time left before the start screen comes back. */
+.hold { position: absolute; left: 24px; right: 16px; bottom: 8px; height: 3px; border-radius: 2px;
+  background: var(--line); overflow: hidden; opacity: 0; transition: opacity .3s; }
+.hold.on { opacity: 1; }
+.hold i { display: block; height: 100%; background: var(--accent); transform-origin: left; }
 /* The screen's lines (drawLines). Too many for the screen scroll by touch. */
 .status .lines { margin-top: 12px; font-size: 18px; line-height: 1.35; min-height: 0;
   overflow: hidden auto; overscroll-behavior: contain; display: flex; flex-direction: column;
   scrollbar-width: none; }
-.lines p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.lines p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--soft); }
 .lines p.gap { height: 8px; }
 aside { width: 340px; margin: 10px 10px 10px 0; background: var(--panel); display: flex;
-  flex-direction: column; min-height: 0; }
-.tabs { display: flex; }
-.tabs button { flex: 1; font: bold 16px var(--sans); border: 0; padding: 9px 0; background: var(--panel);
-  color: var(--muted); cursor: inherit; }
-.tabs button.on { background: var(--tab); color: var(--text); }
+  flex-direction: column; min-height: 0; border-radius: 10px; overflow: hidden;
+  box-shadow: 0 0 0 1px var(--line); }
+.tabs { display: flex; position: relative; box-shadow: inset 0 -1px var(--line); }
+.tabs button { flex: 1; font: bold 16px var(--sans); border: 0; padding: 10px 0; background: none;
+  color: var(--muted); cursor: inherit; transition: color .25s var(--ease); }
+.tabs button.on { color: var(--text); }
+/* The underline slides to the tab that's showing. */
+.tabs .ink { position: absolute; left: 0; bottom: 0; width: 50%; height: 3px; border-radius: 2px;
+  background: var(--info); transition: transform .3s var(--ease); }
+.tabs.board .ink { transform: translateX(100%); }
 /* A list longer than the panel scrolls: by itself (autoScroll), or by touch. */
 #side { flex: 1; min-height: 0; overflow: hidden auto; overflow-anchor: none;
   overscroll-behavior: contain; }
@@ -56,6 +103,8 @@ td.nm span { display: inline-block; }
   td.nm { text-overflow: ellipsis; }
   td.nm span { display: inline; }
 }
+tr.new td { animation: arrive 1.8s var(--ease); }
+@keyframes arrive { from { background: rgba(60, 207, 122, .28); } }
 .empty { color: var(--muted); padding: 8px 10px; font-size: 15px; }
 footer { height: 36px; justify-content: space-between; gap: 12px; }
 footer .entry { font: bold 22px var(--mono); color: var(--prompt); white-space: nowrap; }
@@ -72,15 +121,18 @@ body.typing .kbd { display: flex; }
 body.typing aside { display: none; }
 .kbd div { display: flex; gap: 4px; }
 .kbd button, .kbd span { flex: 2 1 0; min-width: 0; height: 46px; }
-.kbd button { font: bold 20px var(--sans); border: 0; border-radius: 4px; padding: 0;
-  background: var(--tab); color: var(--text); cursor: inherit; }
+.kbd button { font: bold 20px var(--sans); border: 0; border-radius: 6px; padding: 0;
+  background: var(--tab); color: var(--text); cursor: inherit;
+  transition: background-color .12s, transform .08s; }
 .kbd button.word { font-size: 17px; }
-.kbd button:active { background: var(--panel); }
+.kbd button:active { background: var(--panel); transform: scale(.96); }
 .kbd button.done { background: var(--success); color: var(--bg); }
 .kbd button.on { background: var(--info); color: var(--bg); }
-.offline { position: fixed; inset: auto 0 0 auto; margin: 8px; padding: 4px 8px; border-radius: 4px;
-  background: var(--error); color: #fff; font-size: 13px; display: none; }
-.offline.on { display: block; }
+.offline { position: fixed; inset: auto 0 0 auto; margin: 8px; padding: 6px 12px 6px 10px;
+  border-radius: 8px; background: #3a1d22; box-shadow: 0 0 0 1px var(--error); color: #ffd5d5;
+  font-size: 13px; display: none; align-items: center; gap: 10px; }
+.offline.on { display: flex; animation: pop-in .3s var(--ease); }
+.offline .spinner { --size: 18px; --dot: 3px; color: var(--error); }
 </style>
 </head>
 <body>
@@ -96,15 +148,17 @@ body.typing aside { display: none; }
   <span class="clock" id="clock"></span>
 </header>
 <main>
-  <section class="status">
-    <h1 id="title"></h1>
+  <section class="status" id="status">
+    <h1><span id="title"></span><span class="spinner" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span></h1>
     <div class="lines" id="lines"></div>
     <div class="kbd" id="kbd"></div>
+    <div class="hold" id="hold"><i></i></div>
   </section>
   <aside>
-    <div class="tabs">
+    <div class="tabs" id="tabs">
       <button id="tab-here" class="on">Here now</button>
       <button id="tab-board">Leaderboard</button>
+      <span class="ink"></span>
     </div>
     <div id="side"></div>
   </aside>
@@ -117,7 +171,7 @@ body.typing aside { display: none; }
   SIMULATOR card UID: <input id="uid" value="04A1B2C3D4E5F6">
   <button id="tap">Tap card</button> Enter=#  Backspace/Esc=*
 </div>
-<div class="offline" id="offline">Kiosk service not responding…</div>
+<div class="offline" id="offline"><span class="spinner on" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>Kiosk service not responding, reconnecting…</div>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -132,10 +186,18 @@ function post(path, data) {
   return fetch(path, { method: "POST", body: new URLSearchParams(data) }).catch(() => {});
 }
 
+let shown = null;   // the screen showing: a new one slides in (enter)
+
 function showScreen(s) {
+  const fresh = !shown || shown.title !== s.title || shown.tone !== s.tone;
+  shown = s;
   $("title").textContent = s.title;
-  $("title").style.color = TONES.includes(s.tone) ? `var(--${s.tone})` : "var(--text)";
+  document.documentElement.style.setProperty(
+    "--accent", TONES.includes(s.tone) ? `var(--${s.tone})` : "var(--text)");
+  $("status").classList.toggle("busy", !!s.busy);
   drawLines(s.lines);
+  holdBar(fresh ? s.hold : undefined);
+  if (fresh) enter();
   $("entry").textContent = s.entry === null ? "" : "> " + s.entry;
   // Older kiosks sent keyboard: true for the name keyboard.
   const mode = typeof s.keyboard === "string" ? s.keyboard || null : (s.keyboard ? "name" : null);
@@ -148,6 +210,25 @@ function showScreen(s) {
 }
 
 function typing() { return document.body.classList.contains("typing"); }
+
+// A new screen fades and rises into place: the title, then its lines just after.
+function enter() {
+  if (still.matches) return;
+  [$("title").parentNode, $("lines")].forEach((el, i) => el.animate(
+    [{ opacity: 0, transform: "translateY(10px)" }, { opacity: 1, transform: "none" }],
+    { duration: 260, delay: i * 50, easing: "cubic-bezier(.2, .7, .2, 1)", fill: "backwards" }));
+}
+
+// A result screen shows a thin bar that runs down until the start screen comes back.
+// undefined: the same screen again, so the bar carries on.
+function holdBar(seconds) {
+  if (seconds === undefined) return;
+  const bar = $("hold"), fill = bar.firstElementChild;
+  fill.getAnimations().forEach(a => a.cancel());
+  bar.classList.toggle("on", !!seconds);
+  if (seconds) fill.animate([{ transform: "scaleX(1)" }, { transform: "scaleX(0)" }],
+                            { duration: seconds * 1000, easing: "linear", fill: "forwards" });
+}
 
 let drawnLines = null;
 function drawLines(lines) {
@@ -252,6 +333,7 @@ function renderSide() {
   if (!side) return;
   setText($("tab-here"), `Here now (${side.here.length})`);
   $("tab-here").classList.toggle("on", tab === "here");
+  $("tabs").classList.toggle("board", tab === "board");
   $("tab-board").classList.toggle("on", tab === "board");
   const rows = tab === "here" ? side.here : side.board;
   const box = $("side");
@@ -264,7 +346,8 @@ function renderSide() {
     view = { tab, empty: true };
     return;
   }
-  if (!view || view.tab !== tab || view.empty) {
+  const fresh = !view || view.tab !== tab || view.empty;   // nothing to highlight against
+  if (fresh) {
     // Columns: [rank] code name team time. The name takes what the others leave.
     const table = document.createElement("table"), cols = document.createElement("colgroup");
     const col = width => cols.appendChild(Object.assign(document.createElement("col"),
@@ -287,7 +370,13 @@ function renderSide() {
     while (next.has(key)) key += "+";
     const sig = JSON.stringify([r.rank, r.code, r.name, r.team]);
     let row = view.rows.get(key);
-    if (!row || row.sig !== sig) { row = makeRow(r, sig); changed = true; }
+    if (!row || row.sig !== sig) {
+      // Someone who just signed in lights up for a moment.
+      const arrived = !row && !fresh && tab === "here" && !still.matches;
+      row = makeRow(r, sig);
+      if (arrived) row.tr.className = "new";
+      changed = true;
+    }
     else setText(row.time, r.time);
     next.set(key, row);
     const here = tbody.children[i];
