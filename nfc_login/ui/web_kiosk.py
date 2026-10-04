@@ -211,7 +211,8 @@ class WebKiosk:
 
 def screen_json(screen: Screen) -> dict:
     return {"title": screen.title, "lines": screen.lines, "tone": screen.tone,
-            "entry": screen.entry, "keyboard": keyboard_mode(screen)}
+            "entry": screen.entry, "keyboard": keyboard_mode(screen),
+            "busy": getattr(screen, "busy", False), "hold": screen.hold_seconds}
 
 
 def keyboard_mode(screen: Screen) -> str | None:

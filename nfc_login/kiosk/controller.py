@@ -178,6 +178,7 @@ class Screen:
     keyboard: str | None = None
     close_app: bool = False             # the window should close itself
     restart_app: bool = False           # the app should restart itself (e.g. after an update)
+    busy: bool = False                  # waiting on a background job: show a spinner
 
     @property
     def buzz(self) -> str | None:
@@ -881,6 +882,7 @@ class KioskController:
                 self.publish(result)
 
         self._spawn(work)
+        screen.busy = True
         return screen
 
     def _check_updates(self) -> Screen:

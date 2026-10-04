@@ -30,6 +30,7 @@ the Tk main loop drains.
 from __future__ import annotations
 
 import logging
+import math
 import queue
 import threading
 import time
@@ -40,6 +41,7 @@ from datetime import datetime
 from nfc_login.kiosk.controller import KioskController, Screen
 from nfc_login.services import timefmt
 from nfc_login.ui.screen_keys import KEYPAD, KEYPAD_CAPTIONS, blocks, menu_columns
+from nfc_login.ui.motion import spinner_angles
 
 log = logging.getLogger(__name__)
 
@@ -85,6 +87,9 @@ SIDE_TICK_MS = 250          # how often the panel's moving parts are redrawn
 PAGE_MS = 6_000             # a long list turns a page this often (or once its names have slid)
 MARQUEE_HOLD_MS = 2_000     # a name too long for its column rests at its start and its end
 MARQUEE_STEP_MS = 400       # and slides a character at a time in between: 2.5 a second
+
+SPIN_SIZE = 28
+FRAME_MS = 33               # ~30 frames a second for the spinner and the hold bar
 
 
 class KioskWindow:
@@ -200,9 +205,24 @@ class KioskWindow:
         status = tk.Frame(body, bg=COLORS["bg"])
         self.status_frame = status
         status.pack(side="left", fill="both", expand=True, padx=16, pady=(10, 6))
-        self.title_label = tk.Label(status, font=big, anchor="w", justify="left",
+        # A bar down the left edge in the screen's colour (success green, error red...).
+        self.accent = tk.Frame(body, bg=COLORS["info"], width=4)
+        self.accent.pack(side="left", fill="y", padx=(10, 0), pady=18, before=status)
+        # A result screen's time left before the start screen comes back.
+        self.hold_bar = tk.Canvas(status, height=3, bg=COLORS["bg"], highlightthickness=0, bd=0)
+        self.hold_bar.pack(fill="x", side="bottom", pady=(4, 2))
+        self._hold: tuple[float, float] | None = None    # (start, seconds)
+        title_row = tk.Frame(status, bg=COLORS["bg"])
+        title_row.pack(fill="x")
+        self.title_label = tk.Label(title_row, font=big, anchor="w", justify="left",
                                     bg=COLORS["bg"], wraplength=STATUS_WRAP)
-        self.title_label.pack(fill="x")
+        self.title_label.pack(side="left")
+        # While the kiosk waits on something (Wi-Fi, an update).
+        self.spinner = tk.Canvas(title_row, width=SPIN_SIZE, height=SPIN_SIZE, bg=COLORS["bg"],
+                                 highlightthickness=0, bd=0)
+        self._dots = [self.spinner.create_oval(0, 0, 0, 0, width=0, state="hidden")
+                      for _ in range(5)]
+        self._spin_since: float | None = None
         # The screen's lines: text, and buttons for its "K  label" lines (_draw_lines).
         self.lines_frame = tk.Frame(status, bg=COLORS["bg"])
         self.lines_frame.pack(fill="both", expand=True, pady=(8, 0))
@@ -285,7 +305,12 @@ class KioskWindow:
             panel = self.keypad if mode == "keypad" else self.side
             panel.pack(side="right", fill="y", padx=(0, 10), pady=10, before=self.status_frame)
             self._page_at = time.monotonic()    # the page shows in full again
-        self.title_label.config(wraplength=self._wrap())
+        self._wrap_title()
+
+    def _wrap_title(self) -> None:
+        # The spinner, when it shows, sits beside the title.
+        spinner = SPIN_SIZE + 14 if self._spin_since is not None else 0
+        self.title_label.config(wraplength=self._wrap() - spinner)
 
     def _wrap(self) -> int:
         """How wide the screen's text may be: all the width while typing on letter keys."""
@@ -399,7 +424,11 @@ class KioskWindow:
     def show(self, screen: Screen, sound: bool = True) -> None:
         if sound and self.buzzer:
             self.buzzer.play(screen.buzz)
-        self.title_label.config(text=screen.title, fg=COLORS.get(screen.tone, COLORS["text"]))
+        color = COLORS.get(screen.tone, COLORS["text"])
+        self.title_label.config(text=screen.title, fg=color)
+        self.accent.config(bg=color)
+        self._set_busy(getattr(screen, "busy", False), color)
+        self._start_hold(screen.hold_seconds, color)
         self.entry_label.config(text=f"> {screen.entry}" if screen.entry is not None else "")
         self._show_keyboard(keyboard_mode(screen))
         self._draw_lines(screen.lines)
@@ -414,6 +443,56 @@ class KioskWindow:
             self._revert_job = self.root.after(int(screen.hold_seconds * 1000), self._revert)
         if screen.refresh_leaderboard:
             self.refresh(board=True)
+
+    # ------------------------------------------------------------ motion
+
+    def _set_busy(self, busy: bool, color: str) -> None:
+        for dot in self._dots:
+            self.spinner.itemconfig(dot, fill=color)
+        if busy and self._spin_since is None:
+            self._spin_since = time.monotonic()
+            self.spinner.pack(side="left", padx=(14, 0))
+            self._wrap_title()
+            self._spin()
+        elif not busy and self._spin_since is not None:
+            self._spin_since = None
+            self.spinner.pack_forget()
+            self._wrap_title()
+
+    def _spin(self) -> None:
+        if self._spin_since is None:
+            return
+        ms = (time.monotonic() - self._spin_since) * 1000
+        middle, radius, dot = SPIN_SIZE / 2, SPIN_SIZE / 2 - 2.5, 2.2
+        for item, angle in zip(self._dots, spinner_angles(ms)):
+            if angle is None:
+                self.spinner.itemconfig(item, state="hidden")
+                continue
+            x = middle + radius * math.sin(math.radians(angle))
+            y = middle - radius * math.cos(math.radians(angle))
+            self.spinner.coords(item, x - dot, y - dot, x + dot, y + dot)
+            self.spinner.itemconfig(item, state="normal")
+        self.root.after(FRAME_MS, self._spin)
+
+    def _start_hold(self, seconds: float | None, color: str) -> None:
+        self.hold_bar.delete("all")
+        starting = self._hold is None
+        self._hold = (time.monotonic(), seconds) if seconds else None
+        if self._hold:
+            self.hold_bar.create_rectangle(0, 0, 0, 3, width=0, fill=color, tags="bar")
+            if starting:
+                self._run_hold()
+
+    def _run_hold(self) -> None:
+        if self._hold is None:
+            return
+        start, seconds = self._hold
+        left = max(0.0, 1 - (time.monotonic() - start) / seconds)
+        self.hold_bar.coords("bar", 0, 0, self.hold_bar.winfo_width() * left, 3)
+        if left > 0:
+            self.root.after(FRAME_MS, self._run_hold)
+        else:
+            self._hold = None
 
     def _restart(self) -> None:
         self.restart_requested = True

@@ -140,3 +140,11 @@ def test_password_symbols_survive_the_trip(kiosk, monkeypatch):
     while len(typed) < len(chars) and time.monotonic() < deadline:
         time.sleep(0.02)
     assert typed == chars[:-2] + ["\b", "\n"]
+
+
+def test_screens_say_when_to_spin_and_how_long_they_stay():
+    from nfc_login.ui.web_kiosk import screen_json
+    busy = kc.Screen("Looking for Wi-Fi…", busy=True)
+    held = kc.Screen("Welcome, Rowan!", hold_seconds=6)
+    assert screen_json(busy)["busy"] and screen_json(busy)["hold"] is None
+    assert not screen_json(held)["busy"] and screen_json(held)["hold"] == 6
