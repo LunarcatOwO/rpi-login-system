@@ -80,23 +80,26 @@ main { flex: 1; display: flex; min-height: 0; }
   gap: 6px; margin: 3px 0; flex-shrink: 0; }
 button.key { display: flex; align-items: center; gap: 8px; min-height: 46px; min-width: 0;
   padding: 4px 10px 4px 7px; border: 0; border-radius: 6px; background: var(--tab);
-  color: var(--text); font: 16px/1.2 var(--sans); text-align: left; cursor: inherit; }
-button.key:active { background: var(--panel); }
+  color: var(--text); font: 16px/1.2 var(--sans); text-align: left; cursor: inherit;
+  box-shadow: inset 0 0 0 1px var(--line); transition: background-color .12s, transform .08s; }
+button.key:active { background: var(--panel); transform: scale(.97); }
 button.key b { flex: none; display: grid; place-items: center; width: 28px; height: 28px;
   border-radius: 4px; background: var(--bg); color: var(--prompt); font: bold 17px var(--mono); }
 button.key span { min-width: 0; overflow-wrap: anywhere; }
 /* The 4x4 keypad on screen, for IDs, PINs and amounts; it takes the side panel's place. */
 .keypad { display: none; width: 340px; margin: 10px 10px 10px 0; padding: 6px; gap: 6px;
-  background: var(--panel); grid-template: repeat(4, 1fr) / repeat(4, 1fr); }
-body.keypad-on .keypad { display: grid; }
+  background: var(--panel); grid-template: repeat(4, 1fr) / repeat(4, 1fr); border-radius: 10px;
+  box-shadow: 0 0 0 1px var(--line); }
+body.keypad-on .keypad { display: grid; animation: pop-in .25s var(--ease); }
 body.keypad-on aside { display: none; }
 .keypad button { border: 0; border-radius: 6px; background: var(--tab); color: var(--text);
   font: bold 30px var(--sans); cursor: inherit; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 2px; padding: 0; }
+  align-items: center; justify-content: center; gap: 2px; padding: 0;
+  transition: background-color .12s, transform .08s; }
 .keypad button.letter { color: var(--info); }
 .keypad button.enter { background: var(--success); color: var(--bg); }
 .keypad button small { font: 12px var(--sans); }
-.keypad button:active { background: var(--panel); color: var(--text); }
+.keypad button:active { background: var(--panel); color: var(--text); transform: scale(.95); }
 aside { width: 340px; margin: 10px 10px 10px 0; background: var(--panel); display: flex;
   flex-direction: column; min-height: 0; border-radius: 10px; overflow: hidden;
   box-shadow: 0 0 0 1px var(--line); }
