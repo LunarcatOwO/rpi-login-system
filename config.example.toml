@@ -31,13 +31,13 @@ poll_timeout_seconds = 0.5
 
 [hardware.buzzer]
 enabled = true
-pin = 12                        # BCM; physical pin 32 (see docs/hardware.md)
+pin = 12                        # BCM; physical pin 32, - to pin 34 (GND)
 type = "active"                 # or "passive" (driven with a tone at `frequency`)
 frequency = 2700
 active_low = false              # true for modules that beep when the pin is LOW
 key_clicks = true               # short click on each keypad press
 
-# Change any pattern: milliseconds on, off, on, off... (see docs/hardware.md)
+# Change any pattern: milliseconds on, off, on, off... (defaults in nfc_login/hardware/buzzer.py)
 [hardware.buzzer.patterns]
 # sign_in = [70, 50, 70, 50, 180]
 

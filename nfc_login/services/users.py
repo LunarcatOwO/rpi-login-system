@@ -8,11 +8,10 @@
 # Software Foundation, either version 3 of the License, or (at your option)
 # any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
 
-"""User and card management, shared by the admin CLI, kiosk admin menu and web admin.
+"""User and card management, shared by the admin CLI, kiosk admin menu and web admin."""
 
-Only admins can create users or enroll cards: the kiosk asks for the admin
-PIN first, the web page needs an admin login, and the CLI runs on the Pi.
-"""
+# Only admins get here: the kiosk asks for the admin PIN first, the web page
+# needs an admin login, and the CLI runs on the Pi itself.
 
 from __future__ import annotations
 
@@ -28,11 +27,11 @@ from nfc_login.db import repository as repo
 from nfc_login.services import ids, timefmt
 from nfc_login.services.pins import hash_pin, verify_pin
 
-ADMIN_PIN_SETTING = "admin_pin_hash"
+ADMIN_PIN_SETTING = "admin_pin_hash"  # its row in the settings table
 
 
 class UserError(Exception):
-    pass
+    """A problem to show to the admin (taken name, unknown ID, ...)."""
 
 
 class UserService:
@@ -46,6 +45,7 @@ class UserService:
 
     @property
     def section_names(self) -> dict[str, str]:
+        """Team letter -> team name, e.g. {"A": "Robot", ...}."""
         return {s["letter"]: s["name"] for s in self.sections}
 
     def team_name(self, section: str, short: bool = False) -> str:
@@ -56,6 +56,7 @@ class UserService:
         return ids.UNSORTED_NAME if section == ids.UNSORTED else section
 
     def _check_section(self, section: str) -> str:
+        """Tidy a team letter typed by an admin, or refuse an unknown one."""
         section = section.strip().upper()
         if section not in self.section_names:
             choices = ", ".join(f"{k} ({v})" for k, v in self.section_names.items())
@@ -76,13 +77,13 @@ class UserService:
         if len(username) > 64:
             raise UserError("Username must be 64 characters or fewer.")
         section = self._check_section(section)
-        pin_hash = hash_pin(pin) if pin else None
+        pin_hash = hash_pin(pin) if pin else None  # the PIN itself is never stored
         try:
             with self.db.transaction() as cur:
                 number = self._next_number(cur, section)
                 user_id = repo.create_user(cur, username, section, number, self.clock(), pin_hash)
                 return repo.get_user(cur, user_id)
-        except pymysql.err.IntegrityError:
+        except pymysql.err.IntegrityError:  # usernames are UNIQUE in the database
             raise UserError(f"Username {username!r} is already taken.") from None
 
     def move(self, user_id: int, section: str) -> dict:
@@ -92,7 +93,7 @@ class UserService:
             user = repo.get_user(cur, user_id, for_update=True)
             if not user:
                 raise UserError("No user with that ID.")
-            if user["section"] == section:
+            if user["section"] == section:  # already there: keep their ID
                 return user
             number = self._next_number(cur, section)
             cur.execute("UPDATE users SET section = %s, number = %s WHERE id = %s",
@@ -100,6 +101,7 @@ class UserService:
             return repo.get_user(cur, user_id)
 
     def get(self, user_id: int) -> dict:
+        """A user by internal id."""
         with self.db.transaction() as cur:
             user = repo.get_user(cur, user_id)
         if not user:
@@ -107,6 +109,7 @@ class UserService:
         return user
 
     def get_by_code(self, code: str) -> dict:
+        """A user by the ID people type, e.g. "A007" or "007"."""
         try:
             section, number = ids.parse_code(code)
         except ValueError as exc:
@@ -122,6 +125,7 @@ class UserService:
             return repo.list_users(cur, include_inactive)
 
     def set_pin(self, code: str, pin: str | None) -> None:
+        """Set someone's keypad PIN, or remove it with None."""
         user = self.get_by_code(code)
         with self.db.transaction() as cur:
             repo.set_user_pin(cur, user["id"], hash_pin(pin) if pin else None)
@@ -135,6 +139,7 @@ class UserService:
             raise UserError(f"Username {username!r} is already taken.") from None
 
     def set_active(self, code: str, active: bool) -> None:
+        """Deactivate (cards stop working, off the leaderboard) or reactivate someone."""
         user = self.get_by_code(code)
         with self.db.transaction() as cur:
             repo.set_user_active(cur, user["id"], active)
@@ -142,10 +147,7 @@ class UserService:
     # ------------------------------------------------------------ cards
 
     def enroll_tag(self, uid: str, user_id: int) -> dict:
-        """Link a card UID to a user. Refuses a card that already belongs to someone else.
-
-        Callers are responsible for checking the person is an admin.
-        """
+        """Link a card UID to a user. Refuses a card that already belongs to someone else."""
         uid = uid.strip().upper()
         with self.db.transaction() as cur:
             user = repo.get_user(cur, user_id)
@@ -162,6 +164,7 @@ class UserService:
         return user
 
     def remove_tag(self, uid: str) -> None:
+        """Stop a (lost) card working; its owner keeps their ID and hours."""
         with self.db.transaction() as cur:
             if not repo.deactivate_tag(cur, uid.strip().upper()):
                 raise UserError(f"No card with UID {uid}.")
@@ -173,6 +176,7 @@ class UserService:
     # ------------------------------------------------------------ admin PIN
 
     def set_admin_pin(self, pin: str) -> None:
+        """Save a new admin PIN (as a hash)."""
         with self.db.transaction() as cur:
             repo.set_setting(cur, ADMIN_PIN_SETTING, hash_pin(pin))
 
@@ -186,5 +190,6 @@ class UserService:
             return repo.get_setting(cur, ADMIN_PIN_SETTING)
 
     def check_admin_pin(self, pin: str) -> bool:
+        """True if this is the admin PIN."""
         with self.db.transaction() as cur:
             return verify_pin(pin, repo.get_setting(cur, ADMIN_PIN_SETTING))

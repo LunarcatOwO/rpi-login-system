@@ -8,11 +8,7 @@
 # Software Foundation, either version 3 of the License, or (at your option)
 # any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
 
-"""Start the kiosk:  python3 -m nfc_login [--config config.toml] [--simulate]
-
-With --web-ui the screen is served as a local web page instead of a Tkinter
-window; the Electron app (electron/) starts the kiosk this way and shows it.
-"""
+"""Start the kiosk:  python3 -m nfc_login [--config config.toml] [--simulate] [--web-ui]"""
 
 from __future__ import annotations
 
@@ -47,15 +43,18 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     config = load_config(args.config)
+    # Command-line flags win over config.toml.
     if args.simulate:
         config.hardware["mode"] = "simulated"
     if args.windowed:
         config.ui["fullscreen"] = False
 
     services = build_services(config)
+    # There must always be an active season to credit hours to.
     season = services.seasons.ensure_active()
     logging.info("active season: %s", season["name"])
 
+    # Hardware (or stand-ins in simulated mode). keypad/buzzer are None when off.
     reader = create_reader(config)
     keypad = create_keypad(config)
     buzzer = create_buzzer(config)
@@ -85,14 +84,17 @@ def main() -> None:
                      "desktop menu." if args.web_ui else "To start it again, restart the Pi."),
     )
 
+    # Live "who's here" page on port 8080, in its own thread.
     if not start_in_background(services, config):
         logging.info("live page: off")
     simulated = reader if config.hardware["mode"] == "simulated" else None
 
+    # The Electron app passes --web-ui: serve the screen as a web page instead.
     if args.web_ui:
         run_web_ui(args.web_ui, controller, config, reader, keypad, buzzer, simulated, updates)
         return
 
+    # Otherwise draw the screen with Tkinter (imported here so --web-ui works without Tk).
     import tkinter as tk
 
     from nfc_login.ui.kiosk_window import KioskWindow
@@ -100,15 +102,16 @@ def main() -> None:
     kiosk = KioskWindow(root, controller, config.ui, simulated_reader=simulated, buzzer=buzzer,
                         updates=updates)
 
+    # Background threads: one polls the card reader, one scans the keypad.
     NfcWorker(reader, controller, kiosk.publish).start()
     if keypad is not None:
         KeypadPoller(keypad, kiosk.press,
                      config.hardware["keypad"]["poll_interval_seconds"]).start()
     try:
-        root.mainloop()
+        root.mainloop()  # runs until the window closes
     finally:
         if keypad is not None:
-            keypad.cleanup()
+            keypad.cleanup()  # release the GPIO pins
     if getattr(kiosk, "restart_requested", False):
         restart()
 
@@ -116,15 +119,17 @@ def main() -> None:
 def restart() -> None:
     """Admin menu restart (or an installed update): start again with the code now on disk."""
     logging.info("restarting the kiosk")
+    # execv replaces this process, so no second copy fights over the GPIO pins.
     os.execv(sys.executable, [sys.executable, "-m", "nfc_login", *sys.argv[1:]])
 
 
 def run_web_ui(port, controller, config, reader, keypad, buzzer, simulated, updates) -> None:
+    """Same as the Tk path in main(), but the screen is a page on 127.0.0.1:port."""
     from nfc_login.ui.web_kiosk import WebKiosk, serve
     kiosk = WebKiosk(controller, config.ui, buzzer=buzzer, simulated_reader=simulated,
                      updates=updates)
     server = serve(kiosk, port)
-    kiosk.on_restart = server.shutdown
+    kiosk.on_restart = server.shutdown  # a restart stops serve_forever() below
     NfcWorker(reader, controller, kiosk.publish).start()
     if keypad is not None:
         KeypadPoller(keypad, kiosk.press,

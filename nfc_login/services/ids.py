@@ -13,8 +13,8 @@ just the number (007)."""
 
 from __future__ import annotations
 
-DIGITS = 3
-MAX_NUMBER = 10 ** DIGITS - 1
+DIGITS = 3                      # A007: three digits after the letter
+MAX_NUMBER = 10 ** DIGITS - 1   # 999 people per team
 
 # Mentors' "section". Their IDs are number-only, typed on the keypad with no letter.
 MENTORS = "M"
@@ -26,16 +26,17 @@ UNSORTED_NAME = "No team yet"
 
 
 def format_code(section: str, number: int) -> str:
+    """('A', 7) -> 'A007'; ('M', 7) -> '007' (mentors have no letter)."""
     prefix = "" if section == MENTORS else section
-    return f"{prefix}{number:0{DIGITS}d}"
+    return f"{prefix}{number:0{DIGITS}d}"  # :03d pads with zeros
 
 
 def parse_code(text: str) -> tuple[str, int]:
     """'a7', 'A007' -> ('A', 7); '12', '012' -> ('M', 12). Raises ValueError otherwise."""
     text = text.strip().upper()
-    if text.isdigit():
+    if text.isdigit():  # digits only: a mentor
         section, digits = MENTORS, text
-    elif len(text) >= 2 and text[0].isalpha() and text[1:].isdigit():
+    elif len(text) >= 2 and text[0].isalpha() and text[1:].isdigit():  # letter + digits
         section, digits = text[0], text[1:]
     else:
         raise ValueError(f"{text!r} isn't a user ID (a team letter then a number like A007, "

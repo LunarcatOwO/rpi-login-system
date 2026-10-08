@@ -8,15 +8,7 @@
 # Software Foundation, either version 3 of the License, or (at your option)
 # any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
 
-"""Buzzer: short rhythmic patterns so people hear what happened without looking.
-
-A pattern is a list of milliseconds, alternating on and off and starting on:
-``[70, 50, 160]`` is a short beep, a gap, then a long beep. Patterns play on a
-background thread, and a new one cuts off whatever is still playing.
-
-Wiring and the pin are in docs/hardware.md. ``scripts/buzzer_samples.py``
-renders each pattern to a WAV file to hear it without the hardware.
-"""
+"""Buzzer on GPIO 12 (pin 32): a different rhythm for each event."""
 
 from __future__ import annotations
 
@@ -27,12 +19,14 @@ from typing import Callable
 
 log = logging.getLogger(__name__)
 
+# Each pattern is milliseconds on, off, on, off...: [70, 50, 160] is a short
+# beep, a gap, then a long beep. scripts/buzzer_samples.py turns them into WAVs.
 PATTERNS: dict[str, list[int]] = {
     "sign_in": [70, 50, 70, 50, 180],          # da-da-DAA, rising
     "sign_out": [180, 50, 70, 50, 70],         # DAA-da-da, falling
     "success": [70, 50, 180],                  # da-DAA: card enrolled, hours saved
     "ignored": [60],                           # tapped again too soon
-    # dit-dit-dit, dit-dit-dit: pick your group
+    # dit-dit-dit, dit-dit-dit: old card, pick your team
     "attention": [50, 50, 50, 50, 50, 250, 50, 50, 50, 50, 50],
     "admin": [40, 40, 40, 40, 40, 40, 40],     # four quick ticks: admin menu
     "warning": [150, 120, 150],                # two even beeps
@@ -47,13 +41,15 @@ class Buzzer:
     def __init__(self, output: Callable[[bool], None], patterns: dict | None = None,
                  key_clicks: bool = True):
         self.output = output
-        self.patterns = {**PATTERNS, **(patterns or {})}
+        self.patterns = {**PATTERNS, **(patterns or {})}  # config.toml overrides win
         self.key_clicks = key_clicks
         self._queue: queue.Queue[str] = queue.Queue()
         self._interrupt = threading.Event()
+        # Patterns play on their own thread so the screen never waits for a beep.
         threading.Thread(target=self._run, daemon=True, name="buzzer").start()
 
     def play(self, name: str | None) -> None:
+        """Start a pattern by name, cutting off whatever is still playing."""
         if not name or name not in self.patterns:
             return
         if name == "key" and not self.key_clicks:
@@ -69,14 +65,14 @@ class Buzzer:
             self._interrupt.clear()
             try:
                 for i, ms in enumerate(self.patterns[name]):
-                    self.output(i % 2 == 0)
-                    if self._interrupt.wait(ms / 1000):
+                    self.output(i % 2 == 0)              # even steps on, odd steps off
+                    if self._interrupt.wait(ms / 1000):  # sleeps, but wakes on play()
                         break
             except Exception:
                 log.exception("buzzer failed")
             finally:
                 try:
-                    self.output(False)
+                    self.output(False)  # never leave it buzzing
                 except Exception:
                     pass
 
@@ -94,7 +90,7 @@ class GpioBuzzerOutput:
         self.active_low = active_low
         GPIO.setwarnings(False)
         GPIO.setmode(GPIO.BCM)
-        GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH if active_low else GPIO.LOW)
+        GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH if active_low else GPIO.LOW)  # start silent
         self._pwm = None
         if kind == "passive":
             self._pwm = GPIO.PWM(pin, frequency)
@@ -104,6 +100,6 @@ class GpioBuzzerOutput:
 
     def __call__(self, on: bool) -> None:
         if self._pwm is not None:
-            self._pwm.ChangeDutyCycle(50 if on else 0)
+            self._pwm.ChangeDutyCycle(50 if on else 0)  # 50% duty = square wave tone
         else:
-            self._gpio.output(self.pin, on != self.active_low)
+            self._gpio.output(self.pin, on != self.active_low)  # flips the level if active_low

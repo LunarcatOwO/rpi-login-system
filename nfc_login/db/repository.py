@@ -8,11 +8,11 @@
 # Software Foundation, either version 3 of the License, or (at your option)
 # any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
 
-"""SQL queries. Every function takes an open cursor from ``Database.transaction``.
+"""Every SQL query. Each function takes an open cursor from ``Database.transaction``."""
 
-Keeping the SQL here means the services above only deal in plain Python
-values and the queries are easy to find and review in one place.
-"""
+# Keeping the SQL in one file means the services only handle plain Python values.
+# %s placeholders are filled in by PyMySQL, which escapes them (no SQL injection).
+# with_code() adds the "A007"-style ID to each user row.
 
 from __future__ import annotations
 
@@ -36,8 +36,10 @@ def create_user(cur, username: str, section: str, number: int, now: datetime,
 
 def next_user_number(cur, section: str) -> int:
     """Lowest unused number in a section (fills gaps left by removed IDs)."""
+    # FOR UPDATE locks the rows so two admins can't be given the same number at once.
     cur.execute("SELECT number FROM users WHERE section = %s ORDER BY number FOR UPDATE",
                 (section,))
+    # Walk up from 1; the first number missing from the sorted list is free.
     expected = 1
     for row in cur.fetchall():
         if row["number"] != expected:
@@ -48,7 +50,7 @@ def next_user_number(cur, section: str) -> int:
 
 def get_user(cur, user_id: int, for_update: bool = False) -> dict | None:
     sql = "SELECT * FROM users WHERE id = %s"
-    if for_update:
+    if for_update:  # lock the row until the transaction ends
         sql += " FOR UPDATE"
     cur.execute(sql, (user_id,))
     return with_code(cur.fetchone())
@@ -93,15 +95,12 @@ def get_tag(cur, uid: str) -> dict | None:
 
 
 def find_tag(cur, uid: str) -> dict | None:
-    """Look a scanned card up by UID, falling back to its legacy card number.
-
-    The fallback lets cards imported from the legacy system match a scan (its
-    RC522 reader only saw part of a 7-byte UID).
-    A card matched that way has its stored UID updated to the scanned one.
-    """
+    """Look a scanned card up by UID, falling back to its legacy card number."""
     tag = get_tag(cur, uid)
     if tag:
         return tag
+    # Imported legacy cards are stored by the old system's number, because its
+    # RC522 reader only saw part of a 7-byte UID. Work that number out instead.
     key = legacy_key_for_uid(uid)
     if key is None:
         return None
@@ -109,6 +108,7 @@ def find_tag(cur, uid: str) -> dict | None:
                 "ORDER BY enrolled_at DESC LIMIT 1", (key,))
     tag = cur.fetchone()
     if tag and tag["uid"] != uid:
+        # Store the full UID now, so the next scan matches directly.
         cur.execute("UPDATE tags SET uid = %s WHERE uid = %s", (uid, tag["uid"]))
         tag["uid"] = uid
     return tag
@@ -118,6 +118,7 @@ def assign_tag(cur, uid: str, user_id: int, now: datetime,
                legacy_key: int | None = None) -> None:
     if legacy_key is None:
         legacy_key = legacy_key_for_uid(uid)
+    # Re-enrolling a known card moves it to the new owner and turns it back on.
     cur.execute(
         "INSERT INTO tags (uid, user_id, enrolled_at, is_active, legacy_key) "
         "VALUES (%s, %s, %s, 1, %s) "
@@ -128,8 +129,9 @@ def assign_tag(cur, uid: str, user_id: int, now: datetime,
 
 
 def deactivate_tag(cur, uid: str) -> int:
+    # Cards are switched off, never deleted, so old sessions keep their history.
     cur.execute("UPDATE tags SET is_active = 0 WHERE uid = %s", (uid,))
-    return cur.rowcount
+    return cur.rowcount  # 0 if there was no such card
 
 
 def list_tags(cur) -> list[dict]:
@@ -180,6 +182,7 @@ def end_season(cur, season_id: int, now: datetime) -> None:
 
 
 def get_open_session(cur, user_id: int) -> dict | None:
+    # An open session is one with no sign-out time yet: the person is here.
     cur.execute(
         "SELECT * FROM sessions WHERE user_id = %s AND sign_out_at IS NULL "
         "ORDER BY sign_in_at DESC LIMIT 1",
@@ -227,6 +230,7 @@ def open_session(cur, user_id: int, season_id: int, now: datetime, method: str) 
 def close_session(cur, session_id: int, now: datetime, method: str, credited_seconds: int) -> None:
     cur.execute(
         "UPDATE sessions SET sign_out_at = %s, sign_out_method = %s, credited_seconds = %s "
+        # "sign_out_at IS NULL" stops a session being closed (and credited) twice.
         "WHERE id = %s AND sign_out_at IS NULL",
         (now, method, credited_seconds, session_id),
     )
@@ -234,6 +238,7 @@ def close_session(cur, session_id: int, now: datetime, method: str, credited_sec
 
 def season_totals(cur, season_id: int) -> list[dict]:
     """Season time per active user: session time plus admin adjustments."""
+    # COALESCE(..., 0) turns "no rows" (NULL) into 0 for people with no time yet.
     cur.execute(
         "SELECT u.id AS user_id, u.username, u.section, u.number, "
         "  COALESCE((SELECT SUM(s.credited_seconds) FROM sessions s "
@@ -245,8 +250,10 @@ def season_totals(cur, season_id: int) -> list[dict]:
     )
     rows = [with_code(r) for r in cur.fetchall()]
     for row in rows:
+        # SUM() comes back as a Decimal; make it an int.
         row["session_seconds"] = int(row["session_seconds"])
         row["adjustment_seconds"] = int(row["adjustment_seconds"])
+        # Subtracting more than someone has never shows negative hours.
         row["total_seconds"] = max(0, row["session_seconds"] + row["adjustment_seconds"])
     return rows
 
@@ -276,6 +283,7 @@ def season_sessions(cur, season_id: int) -> list[dict]:
 
 def add_adjustment(cur, user_id: int, season_id: int, seconds: int, reason: str,
                    now: datetime, via: str) -> int:
+    # seconds is negative for a subtraction; reason and via are kept for the log.
     cur.execute(
         "INSERT INTO adjustments (user_id, season_id, seconds, reason, created_at, created_via) "
         "VALUES (%s, %s, %s, %s, %s, %s)",
@@ -298,6 +306,7 @@ def list_adjustments(cur, season_id: int, limit: int = 50) -> list[dict]:
 
 
 def get_setting(cur, name: str) -> str | None:
+    # Small key/value table, e.g. the admin PIN's hash.
     cur.execute("SELECT value FROM settings WHERE name = %s", (name,))
     row = cur.fetchone()
     return row["value"] if row else None

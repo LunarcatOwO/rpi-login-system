@@ -8,14 +8,10 @@
 # Software Foundation, either version 3 of the License, or (at your option)
 # any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
 
-"""Render every buzzer pattern to a WAV file, to hear them without the hardware.
+"""Render every buzzer pattern to a WAV file, to hear them without the hardware."""
 
-    python3 scripts/buzzer_samples.py [OUTPUT_DIR] [--frequency 2700]
-
-Writes one file per pattern plus all-patterns.wav (each pattern in turn with
-a pause between). The tone imitates a typical 2.7 kHz active buzzer: a square
-wave with the edges slightly rounded so it's easier on the ears.
-"""
+# python3 scripts/buzzer_samples.py [OUTPUT_DIR] [--frequency 2700]
+# Writes one file per pattern plus all-patterns.wav (each in turn, with pauses).
 
 from __future__ import annotations
 
@@ -26,15 +22,16 @@ import sys
 import wave
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # find nfc_login from scripts/
 from nfc_login.hardware.buzzer import PATTERNS  # noqa: E402
 
-RATE = 44_100
+RATE = 44_100         # samples per second (CD quality)
 RAMP = 0.003          # seconds of fade in/out on each beep (avoids clicks)
-VOLUME = 0.35
+VOLUME = 0.35         # out of 1.0
 
 
 def tone(seconds: float, frequency: float) -> list[float]:
+    """A beep like a 2.7 kHz active buzzer, as samples from -1 to 1."""
     n = int(seconds * RATE)
     ramp = max(1, int(RAMP * RATE))
     out = []
@@ -42,7 +39,7 @@ def tone(seconds: float, frequency: float) -> list[float]:
         t = i / RATE
         # Odd harmonics up to the 5th: buzzer-like, not as harsh as a pure square.
         s = sum(math.sin(2 * math.pi * frequency * k * t) / k for k in (1, 3, 5))
-        env = min(1.0, i / ramp, (n - i) / ramp)
+        env = min(1.0, i / ramp, (n - i) / ramp)  # fade in at the start, out at the end
         out.append(s * env * VOLUME)
     return out
 
@@ -52,6 +49,7 @@ def silence(seconds: float) -> list[float]:
 
 
 def render(pattern: list[int], frequency: float) -> list[float]:
+    """A whole pattern: beep, gap, beep..., with a little silence around it."""
     samples = silence(0.15)
     for i, ms in enumerate(pattern):
         samples += tone(ms / 1000, frequency) if i % 2 == 0 else silence(ms / 1000)
@@ -59,10 +57,12 @@ def render(pattern: list[int], frequency: float) -> list[float]:
 
 
 def write(path: Path, samples: list[float]) -> None:
+    """Save samples as a 16-bit mono WAV file."""
     with wave.open(str(path), "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(2)
         w.setframerate(RATE)
+        # Each sample: clamp to -1..1, scale to a 16-bit integer, little-endian.
         w.writeframes(b"".join(struct.pack("<h", int(max(-1, min(1, s)) * 32767))
                                for s in samples))
 

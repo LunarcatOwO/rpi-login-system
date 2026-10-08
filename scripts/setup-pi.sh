@@ -21,7 +21,7 @@
 #
 # Pass a downloaded nfc-kiosk-*-arm64.deb to install that instead of fetching
 # Electron:  bash scripts/setup-pi.sh path/to/nfc-kiosk-0.2.0-arm64.deb
-set -euo pipefail
+set -euo pipefail   # stop at the first error or unset variable
 
 if [ "$(id -u)" -eq 0 ]; then
     echo "Run this as your normal user; it calls sudo itself where needed." >&2
@@ -31,13 +31,14 @@ fi
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ELECTRON_VERSION="44.5.1"          # keep in step with electron/package-lock.json
 APP_DIR="$HOME/.local/share/nfc-kiosk"
-DEB="${1:-}"
+DEB="${1:-}"                       # optional first argument
 cd "$REPO_DIR"
 
 echo "==> 1/5 Packages, SPI, database and Python (scripts/install.sh)"
 bash "$REPO_DIR/scripts/install.sh"
 
 echo "==> 2/5 Admin PIN"
+# A tiny Python script: exit code 0 if an admin PIN is already set.
 if .venv/bin/python - <<'PY'
 import sys
 from nfc_login.app import build_services
@@ -62,6 +63,7 @@ else
         TMP="$(mktemp -d)"
         curl -fL --retry 3 -o "$TMP/$ZIP" "$URL/$ZIP"
         curl -fsSL --retry 3 -o "$TMP/SHASUMS256.txt" "$URL/SHASUMS256.txt"
+        # Refuse a download whose checksum doesn't match.
         (cd "$TMP" && grep " \*$ZIP\$" SHASUMS256.txt | sha256sum -c -)
         mkdir -p "$APP_DIR"
         unzip -q -o "$TMP/$ZIP" -d "$APP_DIR/electron-v$ELECTRON_VERSION"

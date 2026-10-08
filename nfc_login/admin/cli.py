@@ -8,16 +8,11 @@
 # Software Foundation, either version 3 of the License, or (at your option)
 # any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
 
-"""Admin command-line tool.
+"""Admin command-line tool:  python3 -m nfc_login.admin --help"""
 
-    python3 -m nfc_login.admin --help
-
-Run it on the Pi (over SSH is fine). Users are referred to by their ID, a
-team letter plus number such as A007, or just a number (007) for mentors.
-Commands that use the NFC reader (`tag enroll` without --uid, `tag read`)
-need the kiosk service stopped first, since only one program can talk to the
-reader at a time.
-"""
+# Run it on the Pi (over SSH is fine). People are named by their ID (A007, or
+# 007 for a mentor). Commands that use the reader (tag enroll without --uid,
+# tag read) need the kiosk stopped first: only one program can use the reader.
 
 from __future__ import annotations
 
@@ -36,6 +31,7 @@ from nfc_login.services.users import UserError
 
 
 def _ask_pin(prompt: str = "PIN (4-8 digits): ") -> str:
+    """Ask for a PIN twice, without showing it on screen."""
     pin = getpass.getpass(prompt)
     if getpass.getpass("Again: ") != pin:
         raise UserError("PINs did not match.")
@@ -43,6 +39,7 @@ def _ask_pin(prompt: str = "PIN (4-8 digits): ") -> str:
 
 
 def _table(rows: list[list], headers: list[str]) -> None:
+    """Print rows as a table with columns as wide as their longest value."""
     widths = [max(len(str(x)) for x in col) for col in zip(headers, *rows)] if rows else \
         [len(h) for h in headers]
     print("  ".join(h.ljust(w) for h, w in zip(headers, widths)))
@@ -52,6 +49,7 @@ def _table(rows: list[list], headers: list[str]) -> None:
 
 
 def _wait_for_card(config) -> tuple[object, str]:
+    """Open the reader and wait until a card is tapped."""
     from nfc_login.hardware import create_reader
     if config.hardware["mode"] == "simulated":
         raise UserError("No reader in simulated mode; pass --uid instead.")
@@ -64,6 +62,8 @@ def _wait_for_card(config) -> tuple[object, str]:
 
 
 # ---------------------------------------------------------------- commands
+# One function per command; build_parser() links each to its name. Each gets the
+# services (s), the parsed command line (args) and the config.
 
 
 def cmd_init_db(s, args, config):
@@ -256,9 +256,9 @@ def cmd_sessions_sign_out_all(s, args, config):
 def _parse_duration(text: str) -> int:
     """'1h30m', '2h', '45m', '1:30' -> seconds."""
     t = text.strip().lower().replace(" ", "")
-    if ":" in t:
+    if ":" in t:  # 1:30
         hours, minutes = t.split(":", 1)
-    else:
+    else:         # 1h30m, 2h or 45m: split at the "h" if there is one
         hours, _, rest = t.partition("h") if "h" in t else ("0", "", t)
         minutes = rest.rstrip("m") or "0"
     if not (hours or "0").isdigit() or not minutes.isdigit() or int(minutes) >= 60:
@@ -267,6 +267,7 @@ def _parse_duration(text: str) -> int:
 
 
 def _adjust(s, args, sign: int):
+    """hours add (sign 1) and hours subtract (sign -1)."""
     user = s.users.get_by_code(args.code)
     seconds = sign * _parse_duration(args.amount)
     stats = s.attendance.adjust(user["id"], seconds, args.reason or "", via="cli")
@@ -449,15 +450,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run one command; returns the exit code (0 = worked)."""
     args = build_parser().parse_args(argv)
     config = load_config(args.config)
     services = build_services(config)
     try:
-        args.func(services, args, config)
+        args.func(services, args, config)  # the cmd_... function for this command
     except (UserError, SeasonError, AttendanceError, ValueError, pymysql.err.Error) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
-    except KeyboardInterrupt:
+    except KeyboardInterrupt:  # Ctrl+C
         print()
         return 130
     return 0

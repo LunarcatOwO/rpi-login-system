@@ -8,12 +8,7 @@
 # Software Foundation, either version 3 of the License, or (at your option)
 # any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
 
-"""MariaDB connection handling.
-
-Each unit of work opens its own short-lived connection. On a Pi talking to a
-local MariaDB that is cheap, and it means the kiosk never trips over a
-connection the server timed out overnight.
-"""
+"""MariaDB connection handling."""
 
 from __future__ import annotations
 
@@ -26,6 +21,12 @@ import pymysql.cursors
 
 
 class Database:
+    """Opens a short-lived connection for each unit of work.
+
+    That's cheap against a MariaDB on the same Pi, and the kiosk never trips
+    over a connection the server timed out overnight.
+    """
+
     def __init__(self, settings: dict):
         self.settings = settings
 
@@ -36,10 +37,10 @@ class Database:
             user=self.settings["user"],
             password=self.settings["password"],
             charset="utf8mb4",
-            autocommit=False,
-            cursorclass=pymysql.cursors.DictCursor,
+            autocommit=False,                         # commit only in transaction()
+            cursorclass=pymysql.cursors.DictCursor,   # rows come back as dicts
         )
-        if with_database:
+        if with_database:  # False only to create the database itself
             kwargs["database"] = self.settings["name"]
         return pymysql.connect(**kwargs)
 
@@ -71,6 +72,8 @@ class Database:
             conn.close()
 
     def apply_schema(self) -> None:
+        """Run schema.sql; every statement is IF NOT EXISTS, so it's safe to repeat."""
+        # PyMySQL runs one statement at a time: drop "--" comments, split on ";".
         sql = resources.files("nfc_login.db").joinpath("schema.sql").read_text()
         statements = [s.strip() for s in _strip_comments(sql).split(";") if s.strip()]
         with self.transaction() as cur:
@@ -79,4 +82,5 @@ class Database:
 
 
 def _strip_comments(sql: str) -> str:
+    """Remove "-- comment" text from every line of an SQL file."""
     return "\n".join(line.split("--", 1)[0] for line in sql.splitlines())

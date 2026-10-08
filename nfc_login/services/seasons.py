@@ -8,16 +8,10 @@
 # Software Foundation, either version 3 of the License, or (at your option)
 # any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
 
-"""Season management.
+"""Seasons: one tracking period (normally a school year) each."""
 
-A season reset never deletes anything. It:
-  1. signs out everyone still signed in (crediting their time to the old season),
-  2. marks the old season ended,
-  3. writes a CSV snapshot of the old season to the archive folder,
-  4. starts a new active season.
-Users and their cards carry over; their hours start from zero because hours
-are always summed per season.
-"""
+# Hours are always added up per season, so starting a new season puts everyone
+# back to 0h 00m without deleting anything. Users and cards carry over.
 
 from __future__ import annotations
 
@@ -35,11 +29,13 @@ from nfc_login.services.attendance import credited_seconds
 
 
 class SeasonError(Exception):
-    pass
+    """A season problem to show to the admin."""
 
 
 @dataclass
 class ResetSummary:
+    """What a season reset did, for the confirmation screen."""
+
     old_season: str | None
     new_season: str
     signed_out: int
@@ -47,6 +43,8 @@ class ResetSummary:
 
 
 class SeasonService:
+    """Starts, lists and exports seasons."""
+
     def __init__(
         self,
         db: Database,
@@ -83,6 +81,7 @@ class SeasonService:
             return self._unique_name(cur, str(self.clock().year))
 
     def start_new(self, name: str | None = None) -> ResetSummary:
+        """Season reset: end the active season and start a new one."""
         now = self.clock()
         with self.db.transaction() as cur:
             name = name or str(now.year)
@@ -92,17 +91,20 @@ class SeasonService:
             old = repo.get_active_season(cur, for_update=True)
             signed_out = 0
             if old:
+                # 1. Sign everyone out, crediting their time to the old season.
                 for session in repo.list_open_sessions(cur):
                     credit = credited_seconds(session["sign_in_at"], now, self.max_session)
                     repo.close_session(cur, session["id"], now, "season_reset", credit)
                     signed_out += 1
-                repo.end_season(cur, old["id"], now)
-            repo.create_season(cur, name, now)
+                repo.end_season(cur, old["id"], now)  # 2. mark it ended
+            repo.create_season(cur, name, now)        # 3. start the new one
 
+        # 4. After the commit: save the old season to CSV files in the archive folder.
         files = self.export(old["name"]) if old else []
         return ResetSummary(old["name"] if old else None, name, signed_out, files)
 
     def leaderboard(self, name: str | None = None) -> tuple[dict, list[lb.LeaderboardEntry]]:
+        """Any season's leaderboard by name (the active one by default)."""
         with self.db.transaction() as cur:
             season = repo.get_season_by_name(cur, name) if name else repo.get_active_season(cur)
             if not season:
@@ -117,9 +119,10 @@ class SeasonService:
                 raise SeasonError(f"No season named {name!r}.")
             entries = lb.leaderboard(cur, season["id"])
             sessions = repo.season_sessions(cur, season["id"])
-            adjustments = repo.list_adjustments(cur, season["id"], limit=1_000_000)
+            adjustments = repo.list_adjustments(cur, season["id"], limit=1_000_000)  # all
 
         self.archive_dir.mkdir(parents=True, exist_ok=True)
+        # Season names become file names: replace anything but letters, digits, - and _.
         safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in name)
         board_path = self.archive_dir / f"{safe}-leaderboard.csv"
         sessions_path = self.archive_dir / f"{safe}-sessions.csv"
@@ -137,7 +140,7 @@ class SeasonService:
             writer = csv.writer(fh)
             columns = ["id", "code", "username", "sign_in_at", "sign_in_method",
                        "sign_out_at", "sign_out_method", "credited_seconds"]
-            writer.writerow([c if c != "code" else "user_id" for c in columns])
+            writer.writerow([c if c != "code" else "user_id" for c in columns])  # header row
             for s in sessions:
                 writer.writerow([s[c] for c in columns])
             # Admin corrections are listed after the sessions.
@@ -150,6 +153,7 @@ class SeasonService:
 
     @staticmethod
     def _unique_name(cur, base: str) -> str:
+        """base, or base-2, base-3... if it's taken."""
         name, n = base, 2
         while repo.get_season_by_name(cur, name):
             name = f"{base}-{n}"

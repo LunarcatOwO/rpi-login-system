@@ -27,4 +27,4 @@ web = config.web
 server = create_server(build_services(config), config.sections, web["host"], web["port"],
                        web["refresh_seconds"])
 logging.info("serving on http://%s:%s/", web["host"], web["port"])
-server.serve_forever()
+server.serve_forever()  # until Ctrl+C

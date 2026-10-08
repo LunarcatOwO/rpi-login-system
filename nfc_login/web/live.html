@@ -66,14 +66,17 @@ a { color: var(--accent); }
   <p class="muted" style="margin-top:16px"><a href="/admin">Admin</a></p>
 </main>
 <script>
-const REFRESH_MS = {{REFRESH_MS}};
+// The live page for phones: fetches /api/status every few seconds and redraws.
+const REFRESH_MS = {{REFRESH_MS}};   // filled in by server.py from [web] refresh_seconds
 let data = null, fetchedAt = 0, lastOk = 0;
 
+// Seconds -> "1h 05m".
 function dur(s) {
   s = Math.max(0, Math.floor(s));
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
   return h + "h " + String(m).padStart(2, "0") + "m";
 }
+// Make an element with an optional class and text (textContent, so names can't inject HTML).
 function el(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -81,6 +84,7 @@ function el(tag, cls, text) {
   return e;
 }
 
+// Draw who's here (grouped by team) and the leaderboard from the last data.
 function render() {
   if (!data) return;
   const extra = (Date.now() - fetchedAt) / 1000;  // tick durations between fetches
@@ -116,12 +120,14 @@ function render() {
   }
   if (!data.leaderboard.length) board.append(el("tr")).append(el("td", "muted", "No one yet"));
 
+  // Three missed refreshes in a row: say the connection is lost.
   const stale = Date.now() - lastOk > REFRESH_MS * 3;
   document.getElementById("live").classList.toggle("stale", stale);
   document.getElementById("updated").textContent =
     stale ? "connection lost, retrying…" : "live · updated " + new Date(lastOk).toLocaleTimeString();
 }
 
+// Fetch fresh data from the Pi.
 async function poll() {
   try {
     const res = await fetch("/api/status", { cache: "no-store" });
@@ -132,7 +138,7 @@ async function poll() {
 
 poll();
 setInterval(poll, REFRESH_MS);
-setInterval(render, 1000);
+setInterval(render, 1000);   // redraw every second so the times keep counting
 </script>
 </body>
 </html>

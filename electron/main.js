@@ -37,6 +37,7 @@ const net = require("net");
 const os = require("os");
 const path = require("path");
 
+// A command-line option (--name value), else the environment variable, else the default.
 function option(name, envName, fallback) {
   const i = process.argv.indexOf(`--${name}`);
   if (i !== -1 && process.argv[i + 1]) return process.argv[i + 1];
@@ -49,25 +50,26 @@ const PORT = Number(option("port", "NFC_KIOSK_PORT", "8081"));
 const SIMULATE = process.argv.includes("--simulate");
 const WINDOWED = process.argv.includes("--windowed");
 const URL = `http://127.0.0.1:${PORT}/`;
-const RETRY_SECONDS = 5;
-const DB_WAIT_SECONDS = 30;
+const RETRY_SECONDS = 5;       // after a failed step, try the whole boot again
+const DB_WAIT_SECONDS = 30;     // how long to wait for MariaDB to come up
 
-let win = null;
-let backend = null;
+let win = null;                 // the app's one window
+let backend = null;             // the running Python kiosk process
 // A restart hands this on, so the database is still stopped when the app finally quits.
 let startedDatabase = process.env.NFC_KIOSK_STARTED_DB === "1";
-let quitting = false;
-let shutDown = false;
-let restarting = false;
-let logTail = [];
-let steps = [];
-let ready = false;
+let quitting = false;           // quit started: stop retrying
+let shutDown = false;           // clean-up finished: really quit now
+let restarting = false;         // quitting only to start again
+let logTail = [];               // last lines of the kiosk's log, shown when it fails
+let steps = [];                 // the boot checklist on the status screen
+let ready = false;              // the kiosk screen is showing (not the status page)
 
 // Wayland (Raspberry Pi OS Bookworm and later) or X11, whichever the desktop runs.
 app.commandLine.appendSwitch("ozone-platform-hint", "auto");
 
 // ------------------------------------------------------------ status screen
 
+// The boot checklist: [id, label shown on screen].
 const STEPS = [
   ["database", "Database"],
   ["python", "Kiosk program"],
@@ -82,6 +84,7 @@ function resetSteps() {
   steps = STEPS.map(([id, label]) => ({ id, label, state: "wait", detail: "" }));
 }
 
+// Mark one step: state is wait / run / ok / off / warn / fail.
 function step(id, state, detail = "") {
   const s = steps.find(x => x.id === id);
   if (s) Object.assign(s, { state, detail });
@@ -90,6 +93,7 @@ function step(id, state, detail = "") {
 
 let status = { title: "Starting the kiosk…", message: "" };
 
+// Push the checklist to the status page (loading.html draws it).
 function render() {
   if (!win || ready) return;
   const data = { ...status, steps, log: status.showLog ? logTail.slice(-6).join("\n") : "" };
@@ -97,11 +101,13 @@ function render() {
     .catch(() => {});
 }
 
+// Show loading.html instead of the kiosk screen.
 function showStatusPage() {
   ready = false;
   win.loadFile(path.join(__dirname, "loading.html")).then(render).catch(() => {});
 }
 
+// A step failed: say why, show the log, and boot again in a few seconds.
 function fail(id, detail, message) {
   step(id, "fail", detail);
   status = { title: "The kiosk couldn't start", message: `${message} Trying again in ${RETRY_SECONDS} s.`,
@@ -112,6 +118,7 @@ function fail(id, detail, message) {
 
 // ------------------------------------------------------------ 1. database
 
+// Run a command and wait for it; resolves to its exit code and error output.
 function run(cmd, args, timeoutMs) {
   return new Promise(resolve => {
     const child = spawn(cmd, args, { timeout: timeoutMs });
@@ -122,6 +129,7 @@ function run(cmd, args, timeoutMs) {
   });
 }
 
+// Where the database is, read from config.toml.
 function databaseAddress() {
   // Just enough TOML to find [database] host/port; defaults match config.py.
   let host = "localhost", port = 3306, section = "";
@@ -140,6 +148,7 @@ function databaseAddress() {
   return { host, port };
 }
 
+// True if something accepts a connection on host:port within 1.5 s.
 function reachable({ host, port }) {
   return new Promise(resolve => {
     const sock = net.connect({ host, port, timeout: 1500 });
@@ -149,6 +158,7 @@ function reachable({ host, port }) {
   });
 }
 
+// Step 1: make sure MariaDB is answering, starting it if it's on this Pi.
 async function ensureDatabase() {
   const addr = databaseAddress();
   step("database", "run", `${addr.host}:${addr.port}`);
@@ -163,6 +173,7 @@ async function ensureDatabase() {
   else if (!logTail.some(l => l.startsWith("systemctl start mariadb"))) {
     logTail = logTail.concat(`systemctl start mariadb: ${result.err}`).slice(-12);
   }
+  // Give it up to DB_WAIT_SECONDS to start accepting connections.
   for (let i = 0; i < DB_WAIT_SECONDS; i++) {
     if (await reachable(addr)) return step("database", "ok", startedDatabase ? "started" : "running");
     await new Promise(r => setTimeout(r, 1000));
@@ -173,6 +184,7 @@ async function ensureDatabase() {
 
 // ------------------------------------------------------------ 2. the Python kiosk
 
+// The install's own Python (with its packages) if there is one.
 function python() {
   const venv = path.join(HOME, ".venv", "bin", "python");
   return fs.existsSync(venv) ? venv : "python3";
@@ -198,6 +210,7 @@ const CONTROL = {
   restart: () => setTimeout(restart, 2500),            // System > 5, or an update installed
 };
 
+// Quit, then start a fresh copy of the app (System > 5, or after an update).
 function restart() {
   if (quitting) return;
   restarting = true;
@@ -209,6 +222,7 @@ function restart() {
   app.quit();
 }
 
+// Step 2: start the Python kiosk and follow its log to tick off the steps.
 function startBackend() {
   const args = ["-m", "nfc_login", "--web-ui", String(PORT)];
   if (fs.existsSync(CONFIG)) args.push("--config", CONFIG);
@@ -220,18 +234,21 @@ function startBackend() {
   const child = spawn(python(), args, {
     cwd: HOME,
     env: { ...process.env, PYTHONUNBUFFERED: "1", NFC_KIOSK_CONTROL_FD: "3" },
-    stdio: ["ignore", "pipe", "pipe", "pipe"],
+    stdio: ["ignore", "pipe", "pipe", "pipe"],   // stdin, stdout, stderr, fd 3 = control pipe
   });
   backend = child;
+  // Control pipe: one command per line ("close" or "restart").
   let control = "";
   child.stdio[3].on("data", chunk => {
     control += String(chunk);
     const lines = control.split("\n");
-    control = lines.pop();
+    control = lines.pop();   // keep a half-received line for the next chunk
     for (const line of lines) {
       if (backend === child && Object.hasOwn(CONTROL, line)) CONTROL[line]();
     }
   });
+  // The kiosk's log: copied to our output, kept for the error screen, and
+  // matched against PROGRESS to tick off steps.
   let buffer = "";
   const read = chunk => {
     process.stdout.write(chunk);
@@ -262,6 +279,7 @@ function startBackend() {
   return true;
 }
 
+// True once the kiosk's web server answers.
 function answering() {
   return new Promise(resolve => {
     const req = http.get(URL + "api/kiosk", res => { res.resume(); resolve(res.statusCode === 200); });
@@ -270,6 +288,7 @@ function answering() {
   });
 }
 
+// Step 3: when the kiosk answers, swap the status page for the kiosk screen.
 async function waitThenShow(child) {
   for (;;) {
     if (quitting || backend !== child) return;
@@ -286,6 +305,7 @@ async function waitThenShow(child) {
 
 // ------------------------------------------------------------ boot and shutdown
 
+// Run the steps in order. Called at launch and again after any failure.
 async function boot(retry = false) {
   if (quitting) return;
   resetSteps();
@@ -299,6 +319,7 @@ async function boot(retry = false) {
   waitThenShow(backend);
 }
 
+// Stop the Python kiosk: politely first, forcefully after 5 s.
 function stopBackend() {
   return new Promise(resolve => {
     if (!backend) return resolve();
@@ -309,6 +330,7 @@ function stopBackend() {
   });
 }
 
+// Clean up before quitting: stop the kiosk (and MariaDB if we started it).
 async function shutdown() {
   quitting = true;
   // A restart leaves the database running for the new copy of the app.
@@ -326,6 +348,7 @@ async function shutdown() {
   if (stopDatabase) await run("sudo", ["-n", "systemctl", "stop", "mariadb"], 30_000);
 }
 
+// One fullscreen window, locked down: it can't browse anywhere else.
 function createWindow() {
   win = new BrowserWindow({
     width: 800,
@@ -335,6 +358,7 @@ function createWindow() {
     autoHideMenuBar: true,
     backgroundColor: "#101418",
     title: "NFC Sign In",
+    // The pages get no access to Node.js or the Pi's files.
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   win.setMenu(null);
@@ -346,12 +370,14 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Refuse every permission request (camera, microphone, ...).
   session.defaultSession.setPermissionRequestHandler((_wc, _perm, done) => done(false));
   globalShortcut.register("Control+Alt+Q", () => app.quit());
   createWindow();
   boot();
 });
 
+// Every quit goes through here: hold it until shutdown() has cleaned up.
 app.on("before-quit", event => {
   if (shutDown) return;
   event.preventDefault();

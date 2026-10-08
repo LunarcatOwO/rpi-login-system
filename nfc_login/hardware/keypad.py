@@ -8,12 +8,7 @@
 # Software Foundation, either version 3 of the License, or (at your option)
 # any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
 
-"""4x4 matrix keypad from the SunFounder Da Vinci Kit (lesson 2.1.5).
-
-Same scanning approach as the kit's Python example: drive one row HIGH at a
-time and read which column goes HIGH (columns are pulled down). Added here:
-edge detection so holding a key reports it once.
-"""
+"""4x4 matrix keypad from the SunFounder Da Vinci Kit (lesson 2.1.5)."""
 
 from __future__ import annotations
 
@@ -23,6 +18,12 @@ from typing import Callable
 
 
 class MatrixKeypad:
+    """Scans the keypad the same way as the kit's example code.
+
+    A key joins one row wire to one column wire. Drive one row HIGH at a time
+    and see which column reads HIGH: that row and column give the key.
+    """
+
     def __init__(self, rows: list[int], cols: list[int], keys: list[str]):
         if len(keys) != len(rows) * len(cols):
             raise ValueError("keys must have rows x cols entries")
@@ -35,6 +36,7 @@ class MatrixKeypad:
         GPIO.setwarnings(False)
         GPIO.setmode(GPIO.BCM)
         GPIO.setup(rows, GPIO.OUT, initial=GPIO.LOW)
+        # The Pi's internal pull-downs hold idle columns LOW, so no resistors are needed.
         GPIO.setup(cols, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 
     def read(self) -> set[str]:
@@ -45,11 +47,13 @@ class MatrixKeypad:
             gpio.output(row, gpio.HIGH)
             for j, col in enumerate(self.cols):
                 if gpio.input(col) == 1:
+                    # keys is laid out row by row, so row i, column j is at i * 4 + j.
                     pressed.add(self.keys[i * len(self.cols) + j])
             gpio.output(row, gpio.LOW)
         return pressed
 
     def cleanup(self) -> None:
+        """Hand the pins back (only ours: the PN532 and buzzer keep theirs)."""
         self._gpio.cleanup(self.rows + self.cols)
 
 
@@ -67,6 +71,7 @@ class KeypadPoller(threading.Thread):
         held: set[str] = set()
         while not self._stopped.is_set():
             pressed = self.keypad.read()
+            # Only keys that weren't down last time: holding a key reports it once.
             for key in sorted(pressed - held):
                 self.on_key(key)
             held = pressed

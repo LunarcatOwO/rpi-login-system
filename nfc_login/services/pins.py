@@ -16,18 +16,22 @@ import hashlib
 import hmac
 import secrets
 
+# PINs are never stored, only a slow salted hash of them. With only 10^4-10^8
+# possible PINs, a slow hash makes guessing from a stolen database take far longer.
 ITERATIONS = 100_000
 
 
 def hash_pin(pin: str) -> str:
+    """'1234' -> 'pbkdf2_sha256$iterations$salt$hash', the text saved in the database."""
     if not pin.isdigit() or not 4 <= len(pin) <= 8:
         raise ValueError("PIN must be 4 to 8 digits")
-    salt = secrets.token_bytes(16)
+    salt = secrets.token_bytes(16)  # random per PIN, so equal PINs hash differently
     digest = hashlib.pbkdf2_hmac("sha256", pin.encode(), salt, ITERATIONS)
     return f"pbkdf2_sha256${ITERATIONS}${salt.hex()}${digest.hex()}"
 
 
 def verify_pin(pin: str, stored: str | None) -> bool:
+    """Hash the typed PIN the same way and compare it with the stored hash."""
     if not stored or not pin:
         return False
     try:
@@ -37,4 +41,5 @@ def verify_pin(pin: str, stored: str | None) -> bool:
     if algorithm != "pbkdf2_sha256":
         return False
     digest = hashlib.pbkdf2_hmac("sha256", pin.encode(), bytes.fromhex(salt_hex), int(iterations))
+    # compare_digest takes the same time whether or not the first digits match.
     return hmac.compare_digest(digest.hex(), digest_hex)
