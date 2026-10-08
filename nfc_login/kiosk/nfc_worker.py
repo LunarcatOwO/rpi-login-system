@@ -23,6 +23,8 @@ log = logging.getLogger(__name__)
 
 
 class NfcWorker(threading.Thread):
+    """Asks the reader for a card over and over; each new card goes to the controller."""
+
     def __init__(self, reader, controller: KioskController, publish: Callable[[Screen], None]):
         super().__init__(daemon=True, name="nfc")
         self.reader = reader
@@ -31,16 +33,16 @@ class NfcWorker(threading.Thread):
         self._stopped = threading.Event()
 
     def run(self) -> None:
-        present: str | None = None
+        present: str | None = None  # the card on the reader now, if any
         while not self._stopped.is_set():
             try:
-                uid = self.reader.read_uid()
+                uid = self.reader.read_uid()  # waits up to poll_timeout for a card
             except Exception:  # I2C hiccups shouldn't kill the kiosk
                 log.exception("NFC read failed")
                 time.sleep(1)
                 continue
             if uid is None:
-                present = None
+                present = None  # card taken away: the next tap counts again
                 continue
             if uid == present:
                 continue  # same card still sitting on the reader
@@ -50,7 +52,7 @@ class NfcWorker(threading.Thread):
             except Exception as exc:
                 log.exception("scan of %s failed", uid)
                 screen = Screen("Something went wrong", [str(exc)], "error", hold_seconds=6)
-            self.publish(screen)
+            self.publish(screen)  # hand the result to the screen's thread
 
     def stop(self) -> None:
         self._stopped.set()

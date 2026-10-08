@@ -8,12 +8,7 @@
 # Software Foundation, either version 3 of the License, or (at your option)
 # any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
 
-"""Configuration loading.
-
-Settings live in a TOML file (``config.toml`` by default, see
-``config.example.toml``). Anything missing falls back to the defaults below,
-so a config file only needs the values you want to change.
-"""
+"""Loads config.toml over the defaults below (config.example.toml shows every setting)."""
 
 from __future__ import annotations
 
@@ -23,6 +18,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+# config.toml only needs the values that differ from DEFAULTS.
 DEFAULT_CONFIG_PATH = Path(os.environ.get("NFC_LOGIN_CONFIG", "config.toml"))
 
 DEFAULTS: dict = {
@@ -36,8 +32,9 @@ DEFAULTS: dict = {
     "hardware": {
         # "pi" uses the real PN532 + keypad, "simulated" runs on any computer.
         "mode": "pi",
-        # PN532 wiring. SPI is the quickest and most reliable on a Pi 4 (see
-        # docs/hardware.md); "i2c" and "uart" also work if it's wired that way.
+        # PN532 wiring (DIP switches: SPI = 1 OFF, 2 ON). SPI is the quickest and
+        # most reliable on a Pi 4: I2C clock stretching garbles replies and UART
+        # needs Bluetooth moved off the serial port. "i2c" and "uart" still work.
         "nfc": {
             "interface": "spi",
             "spi_cs_pin": 5,           # BCM pin for the PN532's SS (physical pin 29)
@@ -45,7 +42,7 @@ DEFAULTS: dict = {
             "uart_port": "/dev/serial0",
             "tries": 4,                # attempts per block if a read or write fails
             "write_tags": True,
-            "poll_timeout_seconds": 0.5,
+            "poll_timeout_seconds": 0.5,  # how long each "is a card there?" check waits
         },
         # Buzzer on GPIO 12 (physical pin 32), clear of the keypad and PN532 pins.
         "buzzer": {
@@ -69,7 +66,7 @@ DEFAULTS: dict = {
                 "7", "8", "9", "C",
                 "*", "0", "#", "D",
             ],
-            "poll_interval_seconds": 0.05,
+            "poll_interval_seconds": 0.05,  # scan the keys 20 times a second
         },
     },
     "tag": {
@@ -87,11 +84,11 @@ DEFAULTS: dict = {
         "width": 800,
         "height": 480,
         "leaderboard_size": 10,
-        "result_seconds": 6,
-        "keypad_timeout_seconds": 30,
+        "result_seconds": 6,           # how long a result stays before the idle screen
+        "keypad_timeout_seconds": 30,  # half-typed input is dropped after this
     },
     "seasons": {
-        "archive_dir": "archive",
+        "archive_dir": "archive",      # CSVs of each finished season go here
     },
     # Teams, one per keypad letter key. The letter starts each user ID (A007,
     # D012); "key" is the keypad key that types it and "short" fits the
@@ -112,14 +109,15 @@ DEFAULTS: dict = {
     # Live "who's here" page and admin page, served by the kiosk on the LAN.
     "web": {
         "enabled": True,
-        "host": "0.0.0.0",
+        "host": "0.0.0.0",             # every network interface
         "port": 8080,
-        "refresh_seconds": 3,
+        "refresh_seconds": 3,          # how often the live page reloads its data
     },
 }
 
 
 def _merge(base: dict, override: dict) -> dict:
+    """Deep merge: nested tables are merged key by key, anything else is replaced."""
     merged = copy.deepcopy(base)
     for key, value in override.items():
         if isinstance(value, dict) and isinstance(merged.get(key), dict):
@@ -131,6 +129,8 @@ def _merge(base: dict, override: dict) -> dict:
 
 @dataclass
 class Config:
+    """The merged settings, with a shortcut property for each top-level table."""
+
     data: dict = field(default_factory=lambda: copy.deepcopy(DEFAULTS))
 
     def section(self, *path: str) -> dict:
@@ -177,11 +177,8 @@ class Config:
 
 
 def load_config(path: str | Path | None = None) -> Config:
-    """Load the config file, merged over the defaults.
-
-    A missing file is not an error: the defaults are used, which is handy for
-    ``hardware.mode = "simulated"`` development runs.
-    """
+    """Load the config file, merged over the defaults."""
+    # A missing file isn't an error: the defaults are used (handy for simulator runs).
     path = Path(path) if path else DEFAULT_CONFIG_PATH
     override: dict = {}
     if path.exists():
@@ -196,6 +193,8 @@ def load_config(path: str | Path | None = None) -> Config:
 
 
 def _check_sections(sections: list[dict]) -> None:
+    """Normalise the [[sections]] (teams) and refuse ones the keypad can't type."""
+    # Imported here to avoid a circular import (ids.py doesn't need the config).
     from nfc_login.services.ids import MENTORS, UNSORTED
 
     for section in sections:

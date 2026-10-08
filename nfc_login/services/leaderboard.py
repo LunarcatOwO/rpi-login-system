@@ -19,6 +19,8 @@ from nfc_login.db import repository as repo
 
 @dataclass(frozen=True)
 class LeaderboardEntry:
+    """One row of the leaderboard."""
+
     rank: int
     user_id: int
     code: str
@@ -28,16 +30,16 @@ class LeaderboardEntry:
 
 
 def rank_totals(rows: list[dict]) -> list[LeaderboardEntry]:
-    """Sort by total time and assign standard competition ranks (1, 2, 2, 4).
-
-    Users with equal time share a rank; ties are listed alphabetically.
-    """
+    """Sort by total time and assign standard competition ranks (1, 2, 2, 4)."""
+    # Most time first; equal times are listed alphabetically.
     ordered = sorted(rows, key=lambda r: (-int(r["total_seconds"]), r["username"].lower()))
     entries: list[LeaderboardEntry] = []
     previous_total = None
     rank = 0
     for position, row in enumerate(ordered, start=1):
         total = int(row["total_seconds"])
+        # Same time as the row above shares its rank; otherwise rank = position,
+        # which skips numbers after a tie (two 2nds, then 4th).
         if total != previous_total:
             rank = position
             previous_total = total
@@ -47,8 +49,10 @@ def rank_totals(rows: list[dict]) -> list[LeaderboardEntry]:
 
 
 def leaderboard(cur, season_id: int) -> list[LeaderboardEntry]:
+    """Rank everyone's totals for a season."""
     return rank_totals(repo.season_totals(cur, season_id))
 
 
 def find_entry(entries: list[LeaderboardEntry], user_id: int) -> LeaderboardEntry | None:
+    """One person's row, or None if they aren't on it."""
     return next((e for e in entries if e.user_id == user_id), None)

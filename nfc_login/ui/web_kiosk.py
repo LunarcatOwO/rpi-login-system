@@ -8,22 +8,16 @@
 # Software Foundation, either version 3 of the License, or (at your option)
 # any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
 
-"""The kiosk screen as a local web page, for the Electron app (electron/).
+"""The kiosk screen as a local web page (kiosk.html), shown by the Electron app."""
 
-Same behaviour as the Tkinter window (kiosk_window.py), but the screen is
-drawn by kiosk.html in a browser window. This server listens on 127.0.0.1
-only, because it accepts key presses: nothing on the network can type on the
-kiosk.
-
-    GET  /                 the kiosk page
-    GET  /events           Server-Sent Events: screens, and "refresh" hints
-    GET  /api/kiosk        who's here + leaderboard (+ season, team names)
-    POST /key   key=7      a keypad key (the page sends computer keyboard keys)
-    POST /type  char=a     the on-screen keyboard, while typing a name or a
-                           Wi-Fi password: any one character, or char=back
-                           (delete) / char=done
-    POST /tap   uid=04AB…  simulated mode only: pretend a card was tapped
-"""
+# Same behaviour as the Tkinter window (kiosk_window.py). It listens on
+# 127.0.0.1 only, because it accepts key presses: nothing on the network can type.
+#   GET  /            the kiosk page
+#   GET  /events      Server-Sent Events: new screens and "refresh" hints
+#   GET  /api/kiosk   who's here + leaderboard for the side panel
+#   POST /key         key=7: a keypad key
+#   POST /type        char=a (or back / done): the on-screen keyboard
+#   POST /tap         uid=04AB...: simulated mode only, pretend a card was tapped
 
 from __future__ import annotations
 
@@ -45,12 +39,13 @@ from nfc_login.services import timefmt
 log = logging.getLogger(__name__)
 
 PAGE = Path(__file__).with_name("kiosk.html")
-KEYS = set("0123456789ABCD*#")
-RESTART_DELAY_SECONDS = 2.5
+KEYS = set("0123456789ABCD*#")   # every key on the 4x4 keypad
+RESTART_DELAY_SECONDS = 2.5      # time to read "Restarting..." first
 
 
 def control_pipe():
     """The Electron app's control pipe (see _control), or None."""
+    # The app passes the pipe's file descriptor number in this variable.
     fd = os.environ.get("NFC_KIOSK_CONTROL_FD", "")
     if not fd.isdigit():
         return None
@@ -81,6 +76,8 @@ class WebKiosk:
         self.restart_requested = False
         # Background jobs (Wi-Fi, updates) show their result through this.
         controller.publish = self.publish
+        # Keys are handled one at a time on their own thread, so slow work
+        # (PIN hashing, database calls) never blocks the web server.
         threading.Thread(target=self._key_loop, daemon=True, name="keys").start()
         threading.Thread(target=self._tick, daemon=True, name="kiosk-tick").start()
 
@@ -92,6 +89,7 @@ class WebKiosk:
             self.buzzer.play(screen.buzz)
         with self._lock:
             self._screen = screen
+            # Results go back to the idle screen after hold_seconds (see _tick).
             self._revert_at = (time.monotonic() + screen.hold_seconds
                                if screen.hold_seconds else None)
         self._send({"type": "screen", "screen": screen_json(screen)})
@@ -103,14 +101,9 @@ class WebKiosk:
             self._send({"type": "refresh"})
 
     def _control(self, command: str) -> None:
-        """Ask the Electron app to close or restart (System menu, or an installed update).
-
-        The app passes a private pipe as NFC_KIOSK_CONTROL_FD and only listens
-        there, so nothing written to the log (like a web page request) can
-        close the kiosk. Started without that pipe (an older copy of the app
-        that is still running, or a plain --web-ui run), a restart restarts
-        just this Python program, which loads the new code all the same.
-        """
+        """Ask the Electron app to close or restart (System menu, or an installed update)."""
+        # The app only listens on its private pipe, never the log, so nothing
+        # written to the log (like a web page request) can close the kiosk.
         if self.control is not None:
             try:
                 self.control.write(command + "\n")
@@ -118,6 +111,7 @@ class WebKiosk:
                 return
             except OSError as exc:
                 log.warning("kiosk: couldn't reach the app (%s)", exc)
+        # No pipe (a plain --web-ui run): a restart restarts just this program.
         if command == "close":
             # Older copies of the app quit on this line.
             log.info("kiosk: close requested from the admin menu")
@@ -128,6 +122,7 @@ class WebKiosk:
             threading.Timer(RESTART_DELAY_SECONDS, self.on_restart).start()
 
     def current(self) -> dict:
+        """The screen showing now, for a page that has just connected."""
         with self._lock:
             return screen_json(self._screen)
 
@@ -145,9 +140,9 @@ class WebKiosk:
 
     def _key_loop(self) -> None:
         while True:
-            key = self._keys.get()
+            key = self._keys.get()  # waits for the next key
             try:
-                if isinstance(key, tuple):
+                if isinstance(key, tuple):  # ("char", c) from the on-screen keyboard
                     screen = self.controller.handle_char(key[1])
                 else:
                     screen = self.controller.handle_key(key)
@@ -177,6 +172,7 @@ class WebKiosk:
     # ------------------------------------------------------------ listeners
 
     def listen(self) -> queue.Queue:
+        """A queue that gets every event from now on (one per open page)."""
         q: queue.Queue = queue.Queue(maxsize=100)
         with self._lock:
             self._listeners.append(q)
@@ -199,6 +195,7 @@ class WebKiosk:
     # ------------------------------------------------------------ side panel data
 
     def side_data(self) -> dict:
+        """Data for the side panel: who's here, the leaderboard, team keys."""
         att = self.controller.attendance
         users = self.controller.users
         now = datetime.now()
@@ -220,6 +217,7 @@ class WebKiosk:
 
 
 def screen_json(screen: Screen) -> dict:
+    """A Screen as a dict for the page's JavaScript."""
     return {"title": screen.title, "lines": screen.lines, "tone": screen.tone,
             "entry": screen.entry, "keyboard": keyboard_mode(screen),
             "busy": getattr(screen, "busy", False), "hold": screen.hold_seconds}
@@ -242,6 +240,8 @@ def _typed(char: str) -> str | None:
 
 
 def make_handler(kiosk: WebKiosk):
+    """The HTTP request handler class, bound to this kiosk."""
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "nfc-kiosk"
 
@@ -278,7 +278,7 @@ def make_handler(kiosk: WebKiosk):
                     or self.headers.get("Origin") not in (None, self._origin())):
                 self._json({"error": "forbidden"}, HTTPStatus.FORBIDDEN)
                 return
-            length = min(int(self.headers.get("Content-Length") or 0), 1000)
+            length = min(int(self.headers.get("Content-Length") or 0), 1000)  # small forms only
             form = {k: v[0] for k, v in parse_qs(self.rfile.read(length).decode()).items()}
             path = urlparse(self.path).path
             if path == "/key" and form.get("key", "").upper() in KEYS:
@@ -298,6 +298,8 @@ def make_handler(kiosk: WebKiosk):
             return f"http://{host}:{port}"
 
         def _events(self):
+            # Server-Sent Events: the response never ends; each event is a
+            # "data: {...}" line, pushed as soon as something changes.
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-store")
@@ -308,11 +310,11 @@ def make_handler(kiosk: WebKiosk):
                 while True:
                     try:
                         self._event(q.get(timeout=15))
-                    except queue.Empty:
+                    except queue.Empty:  # quiet for 15 s: a comment keeps the line open
                         self.wfile.write(b": keep-alive\n\n")
                         self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError):
-                pass
+                pass  # the page closed or reloaded
             finally:
                 kiosk.unlisten(q)
 
@@ -324,6 +326,7 @@ def make_handler(kiosk: WebKiosk):
 
 
 def serve(kiosk: WebKiosk, port: int) -> ThreadingHTTPServer:
+    """Create (but don't start) the server; one thread per request."""
     server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(kiosk))
     server.daemon_threads = True
     log.info("kiosk screen at http://127.0.0.1:%d/", port)

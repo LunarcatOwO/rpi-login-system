@@ -8,8 +8,7 @@
 # Software Foundation, either version 3 of the License, or (at your option)
 # any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
 
-"""Compatibility with the legacy attendance system (github.com/aesom-e/attendance).
+"""Compatibility with the legacy attendance system (github.com/aesom-e/attendance)."""
 
-That system used an MFRC522 (RC522) RFID reader, a 16x2 I2C LCD and a PHP +
-MariaDB backend. This package converts its card numbers and imports its data.
-"""
+# That system used an RC522 RFID reader, a 16x2 LCD and a PHP + MariaDB backend.
+# rfid.py converts its card numbers; importer.py copies its database.

@@ -19,6 +19,7 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# The .deb given, or else the newest one built in electron/dist/.
 DEB="${1:-$(ls "$REPO_DIR"/electron/dist/nfc-kiosk-*-arm64.deb 2>/dev/null | tail -n1)}"
 if [ -z "$DEB" ] || [ ! -f "$DEB" ]; then
     echo "No .deb found. Build it with: cd electron && npm install && npm run dist:pi" >&2

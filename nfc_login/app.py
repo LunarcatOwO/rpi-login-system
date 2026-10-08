@@ -23,6 +23,8 @@ from nfc_login.services.users import UserService
 
 @dataclass
 class Services:
+    """Every service, sharing one Database."""
+
     db: Database
     attendance: AttendanceService
     seasons: SeasonService
@@ -30,6 +32,7 @@ class Services:
 
 
 def build_services(config: Config) -> Services:
+    """Create the services from the config; nothing connects until first used."""
     db = Database(config.database)
     att = config.attendance
     return Services(

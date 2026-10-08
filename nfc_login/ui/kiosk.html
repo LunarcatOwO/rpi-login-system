@@ -212,22 +212,27 @@ body.typing aside { display: none; }
 <div class="offline" id="offline"><span class="spinner on" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>Kiosk service not responding, reconnecting…</div>
 
 <script>
-const $ = id => document.getElementById(id);
+// The kiosk screen. Python (web_kiosk.py) decides everything; this page only
+// draws the screens it pushes over /events and sends key presses back.
+const $ = id => document.getElementById(id);   // shorthand: $("title") = the element with id="title"
 const TONES = ["info", "success", "warning", "error", "prompt"];
 const still = matchMedia("(prefers-reduced-motion: reduce)");
 let tab = "here", side = null;
 let kbMode = null, kbPage = "letters", kbShift = false;   // the on-screen keyboard
 
+// ?kiosk=1 (set by the Electron app): fullscreen styling, no mouse pointer.
 if (new URLSearchParams(location.search).has("kiosk")) document.body.classList.add("kiosk");
 
+// Send a form to the kiosk; errors are ignored (the offline notice covers them).
 function post(path, data) {
   return fetch(path, { method: "POST", body: new URLSearchParams(data) }).catch(() => {});
 }
 
 let shown = null;   // the screen showing: a new one slides in (enter)
 
+// Draw a Screen from the kiosk: title, colour, lines, typed entry, keyboard.
 function showScreen(s) {
-  const fresh = !shown || shown.title !== s.title || shown.tone !== s.tone;
+  const fresh = !shown || shown.title !== s.title || shown.tone !== s.tone;   // a different screen, not an update
   shown = s;
   $("title").textContent = s.title;
   document.documentElement.style.setProperty(
@@ -304,6 +309,7 @@ function holdBar(seconds) {
 }
 
 let drawnLines = null;
+// The screen's text lines; blank lines become small gaps.
 function drawLines(lines) {
   const sig = JSON.stringify(lines);
   if (sig === drawnLines) return;   // e.g. only the typed entry changed
@@ -361,6 +367,7 @@ const KEYBOARDS = {
 const WEIGHTS = { "": 1, Shift: 3, Delete: 3, "123": 4, ABC: 4, Done: 4, Space: 8 };
 const CHARS = { Space: " ", Delete: "back", Done: "done" };
 
+// (Re)build the on-screen keyboard for its mode, page and shift.
 function drawKeys() {
   const rows = kbMode === "name" ? KEYBOARDS.name : KEYBOARDS[kbPage];
   $("kbd").replaceChildren(...rows.map(row => {
@@ -381,6 +388,7 @@ function drawKeys() {
   }));
 }
 
+// An on-screen keyboard button was tapped.
 function pressKey(key) {
   if (key === "Shift") kbShift = !kbShift;
   else if (key === "123" || key === "ABC") {
@@ -433,6 +441,7 @@ function setWidth(col, chars) {   // true if the column changed
   return true;
 }
 
+// Draw the side panel: who's here, or the leaderboard.
 function renderSide() {
   if (!side) return;
   setText($("tab-here"), `Here now (${side.here.length})`);
@@ -570,6 +579,7 @@ function selectTab(t) {
   toTop(performance.now());
 }
 
+// Fetch the side panel's data (every 5 s, and when the kiosk says it changed).
 async function loadSide() {
   try {
     const res = await fetch("/api/kiosk", { cache: "no-store" });
@@ -602,6 +612,7 @@ document.addEventListener("keydown", e => {
   if (key.length === 1 && "0123456789ABCD*#".includes(key)) { e.preventDefault(); sendKey(key); }
 });
 
+// Listen for new screens. EventSource reconnects by itself if the kiosk restarts.
 function connect() {
   const events = new EventSource("/events");
   events.onopen = () => { $("offline").classList.remove("on"); loadSide(); };
@@ -613,6 +624,7 @@ function connect() {
   events.onerror = () => $("offline").classList.add("on");   // EventSource retries by itself
 }
 
+// The clock in the top right corner.
 function tick() { $("clock").textContent = new Date().toLocaleTimeString("en-GB"); }
 tick();
 setInterval(tick, 1000);

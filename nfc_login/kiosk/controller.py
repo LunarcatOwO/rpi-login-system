@@ -8,42 +8,17 @@
 # Software Foundation, either version 3 of the License, or (at your option)
 # any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
 
-"""Kiosk behaviour: what happens on a card scan or a key press.
+"""Kiosk behaviour: what happens on a card scan or a key press."""
 
-The controller knows nothing about Tkinter. Each handler returns a ``Screen``
-describing what the display should show, which keeps this logic testable
-without a display or real hardware.
-
-Keypad (Da Vinci Kit 4x4), with the default teams:
-
-    A B C D     start typing a team member's ID, e.g. B 0 0 7 for B007
-                (A Robot, B Impact, C Sustainability, D Strategy).
-    0-9         digits. From the idle screen a digit starts a mentor's ID,
-                which is only a number (007). After any ID: 1 = sign in/out
-                with PIN.
-    *           backspace; on an empty entry, back / cancel.
-                From the idle screen, * opens the admin menu (asks for the PIN).
-    #           Enter, once you've started typing.
-
-The admin menu has three submenus, so everything works from the kiosk with
-nobody opening the web page:
-
-    1 People    add a user, enroll / remove cards, team, rename, PIN, deactivate
-    2 Hours     add / subtract hours, sign someone in or out, who's here,
-                sign everyone out, start a new season
-    3 System    info, updates, Wi-Fi, admin PIN, restart / close the app,
-                restart / shut down the Pi
-
-Names and Wi-Fi passwords need letters, so they're typed on an on-screen
-keyboard (or a USB keyboard); those keys arrive via handle_char. Slow jobs
-(Wi-Fi, updates, power) run in the background and push their result through
-``publish``, which the window sets.
-
-A card imported from the legacy system belongs to a user with a U ID (no
-team yet). On its first scan the person picks their own team, which gives
-them their real ID, and then they're signed in. Choosing Mentors needs the
-admin PIN. Admins can also change anyone's team from the admin menu.
-"""
+# Each handler returns a Screen saying what to show, and knows nothing about
+# Tkinter or the web page, so all of this can be tested without hardware.
+#
+# Keypad:  A-D  start a team member's ID (B 0 0 7 = B007)
+#          0-9  digits; from idle, a mentor's ID (007). After an ID, 1 = sign in by PIN
+#          *    backspace / back; from idle, the admin menu (asks for the PIN)
+#          #    enter
+# Admin menu: 1 People, 2 Hours, 3 System (see the *_MENU_LINES below).
+# Names and Wi-Fi passwords come from the on-screen keyboard via handle_char().
 
 from __future__ import annotations
 
@@ -73,6 +48,7 @@ from nfc_login.tags.payload import TagTooSmall, build_message
 
 log = logging.getLogger(__name__)
 
+# The states (which screen is up). self.state holds one of these.
 IDLE = "idle"
 USER_ID = "user_id"           # typing an ID from the idle screen
 USER_MENU = "user_menu"       # a user's stats, offering PIN sign-in
@@ -134,6 +110,7 @@ BACK = {
     WIFI_PASSWORD: WIFI_LIST, ADMINPIN_AGAIN: ADMINPIN_NEW,
 }
 
+# Limits and timings.
 MAX_PIN = 8
 MAX_AMOUNT = 4                # HHMM, up to 99h 59m per adjustment
 MAX_NAME = 40
@@ -209,6 +186,7 @@ def parse_amount(digits: str) -> int:
 
 
 def _start_thread(fn: Callable[[], None]) -> None:
+    """Run a slow job (Wi-Fi, update, power) in the background."""
     threading.Thread(target=fn, daemon=True, name="kiosk-job").start()
 
 
@@ -273,8 +251,9 @@ class KioskController:
     # ------------------------------------------------------------ screens
 
     def idle_screen(self) -> Screen:
+        """The start screen: tap a card, or type an ID."""
         teams = [f"{k}  {self.users.team_name(v)}" for k, v in self.section_keys.items()]
-        rows = ["      ".join(teams[i:i + 2]) for i in range(0, len(teams), 2)]
+        rows = ["      ".join(teams[i:i + 2]) for i in range(0, len(teams), 2)]  # two per line
         hint = "No card? Type your ID: team letter, then number."
         if self.mentors:
             hint += " Mentors: numbers only."
@@ -288,15 +267,18 @@ class KioskController:
         return self.updates is not None and getattr(self.updates, "installing", False)
 
     def _result(self, title, lines, tone, refresh=False) -> Screen:
+        """A result screen that goes back to idle after a few seconds."""
         return Screen(title, lines, tone, hold_seconds=self.result_seconds,
                       refresh_leaderboard=refresh)
 
     def _reset(self) -> None:
+        """Back to idle, forgetting anything typed."""
         self.state = IDLE
         self.buffer = ""
         self.context = {}
 
     def _go(self, state: str, context: dict | None = None) -> Screen:
+        """Move to another state with an empty entry, and draw it."""
         self.state, self.buffer = state, ""
         if context is not None:
             self.context = context
@@ -305,9 +287,10 @@ class KioskController:
     # ------------------------------------------------------------ cards
 
     def handle_card(self, uid: str) -> Screen:
-        with self._lock:
+        """A card was tapped (called from the NFC thread)."""
+        with self._lock:  # never at the same time as a key press
             self._last_input = self.monotonic()
-            if self.state == ENROLL_SCAN:
+            if self.state == ENROLL_SCAN:  # an admin is enrolling this card
                 return self._enroll(uid)
             # Signing in always works, even mid-menu or while a background job
             # runs (its result is then dropped, unless it must be shown).
@@ -316,7 +299,7 @@ class KioskController:
                 user = self.attendance.user_for_tag(uid)
             except AttendanceError:
                 user = None  # scan_tag below reports why
-            if user and user["section"] == ids.UNSORTED:
+            if user and user["section"] == ids.UNSORTED:  # imported card, no team yet
                 return self._legacy_card(uid, user)
             try:
                 result = self.attendance.scan_tag(uid)
@@ -325,6 +308,7 @@ class KioskController:
             screen = self._scan_screen(result.action, result.stats, result.session_seconds,
                                        result.notes)
             if result.action != IGNORED:
+                # The card is still on the reader: write the new stats onto it.
                 screen.lines.extend(self._write_card(result.stats))
             return screen
 
@@ -337,6 +321,7 @@ class KioskController:
         return screen
 
     def _scan_screen(self, action, stats: UserStats, session_seconds, notes) -> Screen:
+        """The Welcome / Goodbye screen after a scan."""
         summary = [
             f"ID {stats.code}  ·  {self.users.team_name(stats.section)}",
             f"Season {stats.season_name}: {stats.total_text}",
@@ -369,6 +354,7 @@ class KioskController:
         return []
 
     def _enroll(self, uid: str) -> Screen:
+        """Link the tapped card to the user chosen in People > 2."""
         user = self.context["user"]
         self._reset()
         try:
@@ -383,6 +369,7 @@ class KioskController:
     # ------------------------------------------------------------ keypad
 
     def handle_key(self, key: str) -> Screen | None:
+        """A keypad key was pressed; returns the next screen (None = no change)."""
         with self._lock:
             self._last_input = self.monotonic()
             if self.state == BUSY:
@@ -392,6 +379,7 @@ class KioskController:
                                     "error")
             if key == "*":
                 return self._star()
+            # Most screens have their own key handler...
             handler = {
                 IDLE: self._idle_key,
                 USER_MENU: self._user_menu_key,
@@ -409,6 +397,7 @@ class KioskController:
             }.get(self.state)
             if handler:
                 return handler(key)
+            # ...the rest share one per kind of entry.
             if self.state in ID_STATES:
                 return self._id_key(key)
             if self.state in PIN_STATES:
@@ -418,10 +407,7 @@ class KioskController:
             return None  # ENROLL_SCAN waits for a card
 
     def handle_char(self, char: str) -> Screen | None:
-        """A key from the on-screen (or USB) keyboard while typing a name or password.
-
-        Letters and the like are typed; "\\b" deletes one and "\\n" is Done.
-        """
+        """A key from the on-screen (or USB) keyboard: a character, "\\b" delete or "\\n" Done."""
         with self._lock:
             if self.state not in TEXT_STATES:
                 return None
@@ -458,6 +444,7 @@ class KioskController:
                                     "warning")
             self.state = ADMIN_PIN
             return self._redraw()
+        # Something typed: delete one character (but keep a lone team letter).
         if self.buffer and not (self.state in ID_STATES and self.buffer.isalpha()):
             self.buffer = self.buffer[:-1]
             return self._redraw()
@@ -491,6 +478,7 @@ class KioskController:
         return self.idle_screen()
 
     def _idle_key(self, key: str) -> Screen:
+        """A key on the start screen: a team letter or digit starts typing an ID."""
         if key in self.section_keys or (key.isdigit() and self.mentors):
             self.state = USER_ID
             return self._id_key(key)
@@ -501,6 +489,7 @@ class KioskController:
     # -- typing an ID (team letter + digits, or a mentor's digits)
 
     def _id_key(self, key: str) -> Screen | None:
+        """A key while typing an ID; submits by itself once it's complete."""
         if not self.buffer:
             if key in self.section_keys:
                 self.buffer = self.section_keys[key]
@@ -509,14 +498,15 @@ class KioskController:
             return self._redraw()  # must start with a team letter (or a mentor digit)
         if key.isdigit():
             self.buffer += key
-            if len(self.buffer) == ids.code_length(self.buffer):
+            if len(self.buffer) == ids.code_length(self.buffer):  # e.g. 4 for A007
                 return self._submit_id()
             return self._redraw()
-        if key == "#" and any(c.isdigit() for c in self.buffer):
+        if key == "#" and any(c.isdigit() for c in self.buffer):  # short form: A 7 #
             return self._submit_id()
         return self._redraw()
 
     def _submit_id(self) -> Screen:
+        """An ID was typed: look the user up, then go on to whatever needed it."""
         code, self.buffer = self.buffer, ""
         try:
             user = self.users.get_by_code(code)
@@ -526,6 +516,7 @@ class KioskController:
         except UserError as exc:
             return self._error_keep_state(str(exc))
         self.context = {"user": user}
+        # What happens next depends on which screen asked for the ID.
         if self.state == USER_ID:
             self.state = USER_MENU
             return self._user_menu_screen()
@@ -544,6 +535,7 @@ class KioskController:
             self.buffer = user["username"][:MAX_NAME]   # edit the current name
             self.context["cut"] = len(user["username"]) > MAX_NAME
             return self._redraw()
+        # The rest just move on to their next step.
         nxt = {ENROLL_ID: ENROLL_SCAN, MOVE_ID: PICK_TEAM, USERPIN_ID: USERPIN_NEW,
                ADJUST_ID: ADJUST_AMOUNT}[self.state]
         return self._go(nxt)
@@ -551,6 +543,7 @@ class KioskController:
     # -- a user's own menu
 
     def _user_menu_screen(self) -> Screen:
+        """Someone looked themselves up: their stats, and 1 to sign in by PIN."""
         user = self.context["user"]
         try:
             stats = self.attendance.user_stats(user["id"])
@@ -569,6 +562,7 @@ class KioskController:
         ], "info")
 
     def _user_menu_key(self, key: str) -> Screen | None:
+        """1 on a person's own screen: ask for their PIN."""
         if key == "1":
             if not self.context["user"]["pin_hash"]:
                 return self._error_keep_state("No PIN set for you. Use your card.",
@@ -581,6 +575,7 @@ class KioskController:
 
     def _pin_key(self, key: str) -> Screen:
         """A key pressed on any PIN screen: digits are typed, # submits."""
+        # D (or # with nothing typed) on "new PIN" removes the PIN, after asking.
         if key == "D" and self.state == USERPIN_NEW and self.context["user"]["pin_hash"]:
             return self._confirm("remove_pin", PEOPLE_MENU, user=self.context["user"])
         if key.isdigit():
@@ -589,6 +584,7 @@ class KioskController:
             return self._redraw()
         if key != "#":
             return self._redraw()
+        # # pressed: what the PIN is for depends on the screen.
         pin, self.buffer = self.buffer, ""
         if self.state == USERPIN_NEW and not pin and self.context["user"]["pin_hash"]:
             return self._confirm("remove_pin", PEOPLE_MENU, user=self.context["user"])
@@ -600,6 +596,7 @@ class KioskController:
             return self._user_sign(pin)
         if self.state == SEASON_PIN:
             return self._start_season(pin)
+        # Setting a PIN: type it twice, so a typo can't lock anyone out.
         if self.state in (USERPIN_NEW, ADMINPIN_NEW):
             if len(pin) < 4:
                 return self._error_keep_state("A PIN needs 4 to 8 digits.")
@@ -617,6 +614,7 @@ class KioskController:
         return self._result("Admin PIN changed", ["Use the new PIN from now on."], "success")
 
     def _set_user_pin(self, pin: str | None) -> Screen:
+        """Save (or with None, remove) the chosen user's PIN."""
         user = self.context["user"]
         self._reset()
         try:
@@ -632,9 +630,10 @@ class KioskController:
         ], "success")
 
     def _check_admin(self, pin: str) -> Screen:
+        """Admin PIN typed: open the admin menu (or finish a legacy mentor pick)."""
         if self.users.check_admin_pin(pin):
             self._pin_failures = 0
-            if self.context.get("legacy"):
+            if self.context.get("legacy"):  # an admin approving someone picking Mentors
                 return self._set_team(self.context["section"])
             screen = self._go(ADMIN_MENU, {})
             screen.sound = "admin"
@@ -642,6 +641,7 @@ class KioskController:
         return self._wrong_pin()
 
     def _user_sign(self, pin: str) -> Screen:
+        """Sign someone in or out by ID + PIN instead of a card."""
         user = self.context["user"]
         try:
             self.attendance.check_keypad_login(user["id"], pin)
@@ -660,9 +660,10 @@ class KioskController:
                                  result.notes)
 
     def _wrong_pin(self) -> Screen:
+        """Count a wrong PIN; too many in a row lock the keypad for a minute."""
         self._pin_failures += 1
         self._reset()
-        if self._pin_failures >= MAX_PIN_FAILURES:
+        if self._pin_failures >= MAX_PIN_FAILURES:  # stops someone guessing PINs
             self._pin_failures = 0
             self._locked_until = self.monotonic() + LOCKOUT_SECONDS
             return self._result("Keypad locked", ["Too many wrong PINs. Try again soon."], "error")
@@ -671,15 +672,18 @@ class KioskController:
     # -- admin menus
 
     def _admin_choice(self, key: str) -> Screen | None:
+        """Admin menu: 1 People, 2 Hours, 3 System."""
         menu = {"1": PEOPLE_MENU, "2": HOURS_MENU, "3": SYSTEM_MENU}.get(key)
         return self._go(menu, {}) if menu else None
 
     def _people_choice(self, key: str) -> Screen | None:
+        """People menu: each number starts that task."""
         state = {"1": NEW_TEAM, "2": ENROLL_ID, "3": UNCARD_ID, "4": MOVE_ID,
                  "5": RENAME_ID, "6": USERPIN_ID, "7": ACTIVE_ID}.get(key)
         return self._go(state, {}) if state else None
 
     def _hours_choice(self, key: str) -> Screen | None:
+        """Hours menu: each number starts that task."""
         if key == "1":
             return self._go(ADJUST_ID, {})
         if key == "2":
@@ -696,10 +700,12 @@ class KioskController:
         return None
 
     def _system_choice(self, key: str) -> Screen | None:
+        """System menu: each number starts that task."""
+        # While an update installs, only info and the admin PIN stay available.
         if key in ("2", "3", "5", "6", "7", "8") and self._installing():
             return self._error_keep_state("An update is being installed. Try again after.")
         if key == "1":
-            self.context["viewing"] = True
+            self.context["viewing"] = True  # * goes back to the menu, not out of it
             return Screen("System info", self._info_lines() + ["", "*  Back"], "info")
         if key == "2":
             return self._check_updates()
@@ -715,6 +721,7 @@ class KioskController:
         return None
 
     def _info_lines(self) -> list[str]:
+        """Lines for System info."""
         reader = self.reader.firmware_version() if self.reader else "no reader"
         if self.system is not None:
             lines = self.system.info_lines()
@@ -733,9 +740,11 @@ class KioskController:
     # -- confirmations
 
     def _confirm(self, action: str, back: str, **context) -> Screen:
+        """Ask "#  yes   *  back" before doing ``action``."""
         return self._go(CONFIRM, {"action": action, "back": back, **context})
 
     def _confirm_key(self, key: str) -> Screen | None:
+        """# on a confirm screen: do the action that was asked about."""
         if key != "#":
             return None
         ctx, action = self.context, self.context["action"]
@@ -773,6 +782,7 @@ class KioskController:
         return None
 
     def _toggle_active(self, user: dict) -> Screen:
+        """Deactivate someone, or reactivate them if they're already off."""
         self._reset()
         try:
             if user["is_active"]:
@@ -792,6 +802,7 @@ class KioskController:
                             refresh=True)
 
     def _admin_toggle(self, user: dict) -> Screen:
+        """Hours > 2: sign someone in or out without a PIN."""
         self._reset()
         try:
             result = self.attendance.toggle(user["id"], method="admin")
@@ -801,6 +812,7 @@ class KioskController:
                                  result.notes)
 
     def _start_season(self, pin: str) -> Screen:
+        """Admin PIN typed again: start the new season."""
         if not self.users.check_admin_pin(pin):
             return self._wrong_pin()
         name = self.context["name"]
@@ -819,12 +831,14 @@ class KioskController:
     # -- people: add a user, rename
 
     def _new_team_key(self, key: str) -> Screen:
+        """Adding a user: pick their team (1-5, or the team's letter)."""
         section = self.team_choices.get(key) or self.section_keys.get(key)
         if not section:
             return self._redraw()
         return self._go(NEW_NAME, {"section": section})
 
     def _text_key(self, key: str) -> Screen:
+        """A keypad key while a name or Wi-Fi password is being typed; # submits it."""
         if self.state == WIFI_PASSWORD:
             if key.isdigit():           # the keypad's digits type too
                 return self.handle_char(key)
@@ -850,6 +864,7 @@ class KioskController:
             self._reset()
             return self._result("Renamed", [f"{user['username']} is now {name} ({user['code']})."],
                                 "success", refresh=True)
+        # Adding a user: create them, then offer to enroll their card straight away.
         try:
             user = self.users.add(name, self.context["section"])
         except UserError as exc:
@@ -859,6 +874,7 @@ class KioskController:
         return screen
 
     def _here_list_key(self, key: str) -> Screen | None:
+        """# on the admin "who is here" list: next page."""
         if key != "#":
             return None
         self.context["page"] += 1        # wraps round in _redraw
@@ -868,14 +884,11 @@ class KioskController:
 
     def _background(self, screen: Screen, job: Callable[[], object],
                     always: bool = False) -> Screen:
-        """Run a slow job off the keypad thread; its result is published later.
-
-        The job returns a result Screen (then back to idle), None (nothing to
-        show), or a function that moves on to the next step's screen. A card
-        scan meanwhile cancels the menu and the result is dropped, unless
-        ``always`` (an installed update must still restart the app).
-        """
-        token = object()
+        """Run a slow job off the keypad thread; its result is published later."""
+        # The job returns a result Screen, None (nothing to show), or a function
+        # that moves on to the next step's screen. A card scan meanwhile cancels
+        # the menu and the result is dropped, unless ``always`` is set.
+        token = object()  # identifies this job, so a stale one can tell it's stale
         self.state, self.buffer, self._job = BUSY, "", token
 
         def work():
@@ -885,6 +898,7 @@ class KioskController:
                 log.exception("kiosk job failed")
                 result = self._result("Something went wrong", [str(exc)], "error")
             with self._lock:
+                # Still ours if no card scan or newer job replaced it meanwhile.
                 owned = self._job is token and self.state == BUSY
                 if self._job is token:
                     self._job = None
@@ -906,6 +920,7 @@ class KioskController:
         return screen
 
     def _check_updates(self) -> Screen:
+        """System > 2: check GitHub, then offer to install what's new."""
         if self.updates is None:
             return self._error_keep_state("Updates aren't set up on this kiosk.")
 
@@ -929,6 +944,7 @@ class KioskController:
         return self._background(Screen("Checking for updates…", ["One moment."], "info"), job)
 
     def _update_confirm_key(self, key: str) -> Screen | None:
+        """# on the update screen: install it, then restart the app."""
         if key != "#":
             return None
 
@@ -948,6 +964,7 @@ class KioskController:
         ], "warning"), job, always=True)
 
     def _wifi_scan(self) -> Screen:
+        """System > 3: list nearby networks."""
         if self.system is None:
             return self._error_keep_state("Wi-Fi can't be set up from this kiosk.")
 
@@ -968,6 +985,7 @@ class KioskController:
         return self._background(Screen("Looking for Wi-Fi…", ["One moment."], "info"), job)
 
     def _wifi_list_key(self, key: str) -> Screen | None:
+        """Pick a network by its number (# scans again)."""
         if key == "#":
             return self._wifi_scan()
         networks = self.context["networks"]
@@ -979,6 +997,7 @@ class KioskController:
         return self._wifi_connect(network.ssid, None)
 
     def _wifi_connect(self, ssid: str, password: str | None) -> Screen:
+        """Join the network in the background; back to the list if it fails."""
         networks = self.context.get("networks", [])
 
         def job():
@@ -998,6 +1017,7 @@ class KioskController:
                                        "info"), job)
 
     def _power(self, action: str) -> Screen:
+        """Restart or shut down the Pi, after a moment to read the screen."""
         def job():
             self._sleep(POWER_DELAY_SECONDS)
             try:
@@ -1017,6 +1037,7 @@ class KioskController:
         return self._background(screen, job, always=True)
 
     def _amount_key(self, key: str) -> Screen:
+        """Hours > 1: type the time, then A to add or B to subtract."""
         if key.isdigit():
             if len(self.buffer) < MAX_AMOUNT:
                 self.buffer += key
@@ -1047,6 +1068,7 @@ class KioskController:
     # ------------------------------------------------------------ teams
 
     def _pick_team_key(self, key: str) -> Screen:
+        """A team picked by number or letter (legacy card's owner, or an admin)."""
         section = self.team_choices.get(key) or self.section_keys.get(key)
         if not section:
             return self._redraw()
@@ -1060,6 +1082,7 @@ class KioskController:
         return self._set_team(section)
 
     def _set_team(self, section: str) -> Screen:
+        """Move the user to the team; a legacy card's owner is then signed in."""
         uid, user = self.context.get("uid"), self.context["user"]
         self._reset()
         team = self.users.team_name(section)
@@ -1151,6 +1174,7 @@ class KioskController:
                                 "shortened if you change it.")
             return Screen(title, lines, "prompt", entry=self.buffer + "_", keyboard="name")
         if state == WIFI_PASSWORD:
+            # Hide the password except its last character, like a phone does.
             shown = "•" * max(len(self.buffer) - 1, 0) + self.buffer[-1:]
             return Screen(f"Password for {ctx['ssid']}", [
                 "Type it on the keyboard below, then Done.",
@@ -1167,8 +1191,8 @@ class KioskController:
                           + ["", "#  scan again      *  back"], "prompt")
         if state == HERE_LIST:
             rows = self.attendance.currently_signed_in()
-            pages = max(1, -(-len(rows) // HERE_PAGE))
-            page = ctx["page"] % pages
+            pages = max(1, -(-len(rows) // HERE_PAGE))  # round up
+            page = ctx["page"] % pages                  # past the last page: back to the first
             ctx["page"] = page
             lines = [f"{r['code']}  {_cut(r['username'], 22)}  since {r['sign_in_at']:%H:%M}"
                      for r in rows[page * HERE_PAGE:(page + 1) * HERE_PAGE]]
@@ -1204,6 +1228,7 @@ class KioskController:
                      USERPIN_ID: "Set a PIN: user ID",
                      ACTIVE_ID: "Deactivate / reactivate: user ID",
                      TOGGLE_ID: "Sign in or out: user ID"}[state]
+            # Show the typed part plus a _ for each character still to come: A0__
             length = ids.code_length(self.buffer) if self.buffer else ids.DIGITS + 1
             shown = self.buffer + "_" * (length - len(self.buffer))
             hint = "Team letter, then the number."
@@ -1228,11 +1253,13 @@ class KioskController:
         return self.idle_screen()
 
     def _pin_screen(self) -> Screen:
+        """Every PIN screen, with the on-screen keypad."""
         screen = self._pin_screen_text()
         screen.keyboard = "keypad"
         return screen
 
     def _pin_screen_text(self) -> Screen:
+        """The PIN screens' text; the PIN shows as dots."""
         state, ctx = self.state, self.context
         dots = "•" * len(self.buffer)
         if state == USERPIN_NEW:
@@ -1262,6 +1289,7 @@ class KioskController:
         return Screen(title, ["Then press #", "*  back"], "prompt", entry=dots)
 
     def _confirm_screen(self) -> Screen:
+        """The "are you sure?" screen for each action."""
         ctx = self.context
         action = ctx["action"]
         if action == "sign_out_all":
@@ -1304,6 +1332,7 @@ class KioskController:
         return Screen(title, [*lines, "", "#  yes      *  back"], "warning")
 
     def _error_keep_state(self, message: str, screen: Screen | None = None) -> Screen:
+        """Stay on this screen, with the error on top in red."""
         screen = screen or self._redraw()
         screen.lines = [message] + screen.lines
         screen.tone = "error"
@@ -1316,16 +1345,18 @@ def _add_name_char(buffer: str, char: str) -> str:
         return buffer
     if not buffer or buffer[-1] in " -":
         char = char.upper()
-    if char == " " and (not buffer or buffer.endswith(" ")):
+    if char == " " and (not buffer or buffer.endswith(" ")):  # no leading or double spaces
         return buffer
     return buffer + char
 
 
 def _rank_text(stats: UserStats) -> str:
+    """"#3 of 40", or "-" with no time yet."""
     return f"#{stats.rank} of {stats.ranked_users}" if stats.rank else "-"
 
 
 def local_ip() -> str:
+    """This Pi's network address (same trick as system.local_ip)."""
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.connect(("10.255.255.255", 1))
@@ -1335,4 +1366,5 @@ def local_ip() -> str:
 
 
 def _cut(text: str, limit: int) -> str:
+    """Shorten text to fit, ending with …"""
     return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"

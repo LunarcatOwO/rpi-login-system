@@ -8,17 +8,17 @@
 # Software Foundation, either version 3 of the License, or (at your option)
 # any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
 
-"""NFC login system for a Raspberry Pi 4 B kiosk.
+"""NFC login system for a Raspberry Pi 4 B kiosk."""
 
-Packages:
-    nfc_login.config     - loads config.toml
-    nfc_login.db         - MariaDB schema, connection and queries
-    nfc_login.hardware   - PN532 NFC reader, matrix keypad, simulators
-    nfc_login.tags       - NDEF encoding and the data written to each card
-    nfc_login.services   - attendance, leaderboard and season logic
-    nfc_login.kiosk      - controller tying card scans and keypad input together
-    nfc_login.ui         - Tkinter touchscreen interface
-    nfc_login.admin      - command-line admin tool
-"""
+# Packages, from the bottom up:
+#   config    loads config.toml
+#   db        MariaDB schema, connection and every SQL query
+#   hardware  PN532 NFC reader, 4x4 keypad, buzzer, simulator
+#   tags      NDEF encoding and what gets written onto each card
+#   services  attendance, leaderboard, seasons, users, updates, system
+#   kiosk     the controller: what a card scan or key press does
+#   ui        the kiosk screen (Tkinter window or the Electron app's web page)
+#   web       live "who's here" page and admin page on port 8080
+#   admin     command-line admin tool
 
 __version__ = "0.1.0"

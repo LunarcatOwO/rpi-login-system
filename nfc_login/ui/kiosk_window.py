@@ -8,34 +8,21 @@
 # Software Foundation, either version 3 of the License, or (at your option)
 # any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
 
-"""Tkinter kiosk window sized for the 5 inch 800x480 touchscreen.
+"""Tkinter kiosk window sized for the 5 inch 800x480 touchscreen."""
 
-Layout:
-    +-------------------------------------------------------------+
-    | NFC Sign In            Season 2026              16:42:07    |
-    +--------------------------------------+----------------------+
-    |  Welcome, Taylor!                    | [Here now 4][Leaders]|
-    |  Signed in at ...                    | A007 Taylor Robot 1h |
-    |  ID A007 · Robot                     | 003  Alex  Mentor 0h |
-    |  ...                                 |  ...                 |
-    +--------------------------------------+----------------------+
-    | > typed keypad input    No card? Keypad ID: A Robot  B Impact ... |
-    +-------------------------------------------------------------+
-
-The right-hand panel has two touch tabs: who is signed in right now (live,
-refreshed every few seconds and after every scan) and the season leaderboard.
-A list too long for the panel shows a page at a time and turns its pages by
-itself; a name too long for its column slides sideways to show its end.
-While a name or Wi-Fi password is being typed, an on-screen keyboard takes
-the side panel's place; while an ID, PIN or amount is, an on-screen 4x4 keypad
-does.
-
-Everything works by touch as well as on the keypad: a screen line of "K  label"
-parts (see Screen) is drawn as buttons that press those keys.
-
-Hardware threads never touch Tk directly: they put Screens on a queue that
-the Tk main loop drains.
-"""
+# +--------------------------------------+----------------------+
+# | NFC Sign In          Season 2026                 16:42:07   |  header
+# +--------------------------------------+----------------------+
+# |  Welcome, Taylor!                    | [Here now 4][Leaders]|  side panel:
+# |  ID A007 · Robot ...                 | A007 Taylor Robot 1h |  who's here or
+# |                                      | 003  Alex  Mentor 0h |  the leaderboard
+# +--------------------------------------+----------------------+
+# | > typed input          No card? Type your ID ...  * admin   |  footer
+# +-------------------------------------------------------------+
+# Every "K  label" choice on a screen is also drawn as a button that presses K,
+# and ID, PIN and amount screens show an on-screen 4x4 keypad.
+# Tk is not thread-safe: other threads put Screens on self.events, and the Tk
+# main loop takes them off (_drain_events) and draws them.
 
 from __future__ import annotations
 
@@ -55,6 +42,7 @@ from nfc_login.ui.motion import spinner_angles
 
 log = logging.getLogger(__name__)
 
+# One colour per screen tone (and the background shades).
 COLORS = {
     "bg": "#101418",
     "panel": "#1b2129",
@@ -88,8 +76,8 @@ KEY_WEIGHTS = {"": 1, "Shift": 3, "Delete": 3, "123": 4, "ABC": 4, "Done": 4, "S
 KEY_CHARS = {"Space": " ", "Delete": "\b", "Done": "\n"}
 KEY_HEIGHT = 46
 
-HERE_REFRESH_MS = 5_000
-BOARD_REFRESH_MS = 60_000
+HERE_REFRESH_MS = 5_000     # reload who's here
+BOARD_REFRESH_MS = 60_000   # reload the leaderboard (scans also refresh it)
 
 SIDE_WIDTH = 340            # the right-hand panel
 STATUS_WRAP = 416           # the status text beside it: 800 - 350 (panel) - 2 x 16
@@ -136,7 +124,7 @@ class KioskWindow:
         root.configure(bg=COLORS["bg"])
         if ui_config["fullscreen"]:
             root.attributes("-fullscreen", True)
-            root.config(cursor="none")
+            root.config(cursor="none")  # hide the mouse pointer on the touchscreen
         else:
             root.geometry(f"{ui_config['width']}x{ui_config['height']}")
 
@@ -144,6 +132,7 @@ class KioskWindow:
         root.bind("<Key>", self._on_keyboard)
 
         self.show(controller.idle_screen())
+        # Start the repeating jobs; each one re-schedules itself with root.after().
         self._tick_clock()
         self._drain_events()
         self._check_timeout()
@@ -286,6 +275,7 @@ class KioskWindow:
                           ).grid(row=0, column=col, sticky="nsew", padx=2)
 
     def _key_pressed(self, key: str) -> None:
+        """An on-screen keyboard button was tapped."""
         if key == "Shift":
             self._kb_shift = not self._kb_shift
         elif key in ("123", "ABC"):
@@ -408,6 +398,7 @@ class KioskWindow:
                         row=r, column=c, sticky="nsew", padx=2, pady=2)
 
     def _build_simulator(self, reader) -> None:
+        """Simulator only: a yellow bar to type a card UID and "tap" it."""
         sim = tk.Frame(self.root, bg="#2a1f00")
         sim.pack(fill="x", side="bottom", before=self.footer)   # under the footer
         tk.Label(sim, text="SIMULATOR  card UID:", fg="#ffd27a", bg="#2a1f00").pack(side="left",
@@ -422,6 +413,7 @@ class KioskWindow:
         self._sim_entry = entry
 
     def _select_tab(self, tab: str) -> None:
+        """Switch the side panel between "here" and "board"."""
         self._tab = tab
         for name, button in (("here", self.here_tab), ("board", self.board_tab)):
             active = name == tab
@@ -449,9 +441,10 @@ class KioskWindow:
         self._show_keyboard(keyboard_mode(screen))
         self._draw_lines(screen.lines)
         if screen.close_app:
-            self.root.after(2500, self.root.destroy)
+            self.root.after(2500, self.root.destroy)  # time to read the screen first
         if getattr(screen, "restart_app", False):
             self.root.after(2500, self._restart)
+        # A new screen cancels the old screen's timer back to idle.
         if self._revert_job:
             self.root.after_cancel(self._revert_job)
             self._revert_job = None
@@ -463,6 +456,7 @@ class KioskWindow:
     # ------------------------------------------------------------ motion
 
     def _set_busy(self, busy: bool, color: str) -> None:
+        """Show or hide the spinner beside the title."""
         for dot in self._dots:
             self.spinner.itemconfig(dot, fill=color)
         if busy and self._spin_since is None:
@@ -484,6 +478,7 @@ class KioskWindow:
             if angle is None:
                 self.spinner.itemconfig(item, state="hidden")
                 continue
+            # Angle clockwise from the top -> x, y on the circle (y grows downwards).
             x = middle + radius * math.sin(math.radians(angle))
             y = middle - radius * math.cos(math.radians(angle))
             self.spinner.coords(item, x - dot, y - dot, x + dot, y + dot)
@@ -491,6 +486,7 @@ class KioskWindow:
         self.root.after(FRAME_MS, self._spin)
 
     def _start_hold(self, seconds: float | None, color: str) -> None:
+        """Start the thin bar that shrinks until the result screen goes away."""
         self.hold_bar.delete("all")
         starting = self._hold is None
         self._hold = (time.monotonic(), seconds) if seconds else None
@@ -503,7 +499,7 @@ class KioskWindow:
         if self._hold is None:
             return
         start, seconds = self._hold
-        left = max(0.0, 1 - (time.monotonic() - start) / seconds)
+        left = max(0.0, 1 - (time.monotonic() - start) / seconds)  # fraction of time left
         self.hold_bar.coords("bar", 0, 0, self.hold_bar.winfo_width() * left, 3)
         if left > 0:
             self.root.after(FRAME_MS, self._run_hold)
@@ -516,6 +512,7 @@ class KioskWindow:
 
     def _revert(self) -> None:
         self._revert_job = None
+        # Back to the start screen, unless someone is in the middle of a menu.
         if self.controller.state == "idle":
             self.show(self.controller.idle_screen(), sound=False)
 
@@ -551,6 +548,7 @@ class KioskWindow:
                       timefmt.format_duration(e.total_seconds)) for e in self._board]
         if not cells:
             return []
+        # Widest rank, team and time, so every row's columns line up.
         rank_w, team_w, time_w = (max(len(c[i]) for c in cells) for i in (0, 3, 4))
         return [(f"{rank:>{rank_w}} {code:<4}" if rank_w else f"{code:<4}", name,
                  f"{team:<{team_w}} {spent:>{time_w}}")
@@ -575,7 +573,7 @@ class KioskWindow:
         per_page = height // line
         if len(rows) > per_page:
             per_page = max(1, (height - self.page_font.metrics("linespace")) // line)
-        self._pages = -(-len(rows) // per_page)
+        self._pages = -(-len(rows) // per_page)  # -(-a // b) rounds the division up
         self._page = min(self._page, self._pages - 1)
         shown = rows[self._page * per_page:(self._page + 1) * per_page]
         name_w = max(6, cols - len(rows[0][0]) - len(rows[0][2]) - 2)
@@ -603,6 +601,7 @@ class KioskWindow:
     # ------------------------------------------------------------ loops
 
     def _drain_events(self) -> None:
+        """Every 50 ms on the Tk thread: apply whatever other threads queued."""
         try:
             while True:
                 kind, payload = self.events.get_nowait()
@@ -685,6 +684,7 @@ class KioskWindow:
                 self.publish(screen)
 
     def _on_keyboard(self, event) -> None:
+        """A computer keyboard key (simulator, or a USB keyboard on the Pi)."""
         if getattr(self, "_sim_entry", None) is not None and event.widget is self._sim_entry:
             return
         if self._kb_mode in ("name", "text") and event.keysym != "Escape":
@@ -714,6 +714,8 @@ def slide(name: str, width: int, ms: float) -> str:
     over = len(name) - width
     if over <= 0:
         return name.ljust(width)
+    # Where in the cycle we are -> how many characters to skip, kept within 0..over
+    # (so it rests at the start, then at the end).
     start = int((ms % marquee_ms(over) - MARQUEE_HOLD_MS) // MARQUEE_STEP_MS)
     start = min(over, max(0, start))
     return name[start:start + width]

@@ -8,18 +8,12 @@
 # Software Foundation, either version 3 of the License, or (at your option)
 # any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
 
-"""What the kiosk admin menu can do to the Pi itself: system info, Wi-Fi, restart.
+"""The admin System menu's actions on the Pi itself: system info, Wi-Fi, restart."""
 
-The kiosk has no keyboard, so this is how an admin puts the Pi on a new Wi-Fi
-network, finds its IP address or restarts it from the touchscreen. It drives
-the Raspberry Pi OS (Bookworm) tools: NetworkManager's nmcli and systemd, with
-`sudo -n` where the desktop user needs it. On a dev PC those tools may be
-missing: the actions then raise SystemActionError with a short reason, and the
-info lines leave out what they can't find.
-
-The Wi-Fi and power calls block (a scan takes a few seconds, connecting up to
-45 s), so call them off the UI thread.
-"""
+# Runs the Raspberry Pi OS tools (NetworkManager's nmcli, systemctl), with
+# "sudo -n" where needed. On a PC without them, actions raise SystemActionError
+# and System info leaves out what it can't find.
+# Wi-Fi and power calls block (connecting can take 45 s): call them off the UI thread.
 
 from __future__ import annotations
 
@@ -43,8 +37,8 @@ WRONG_PASSWORD = "Wrong Wi-Fi password, or the network refused it."
 NETWORK_GONE = "Couldn't find that network any more."
 NOT_ALLOWED = "The kiosk isn't allowed to change Wi-Fi on this Pi."
 
-THERMAL_FILE = "/sys/class/thermal/thermal_zone0/temp"
-UPTIME_FILE = "/proc/uptime"
+THERMAL_FILE = "/sys/class/thermal/thermal_zone0/temp"  # CPU temperature in 1/1000 °C
+UPTIME_FILE = "/proc/uptime"                             # seconds since boot
 INFO_WIDTH = 40          # the System info screen fits about this many characters a line
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
@@ -56,11 +50,13 @@ TIMED_OUT = 124
 # C.UTF-8 rather than plain C: English messages, but Wi-Fi names with accents or
 # emoji still come through intact.
 _ENV = {"LC_ALL": "C.UTF-8", "GIT_TERMINAL_PROMPT": "0"}
+# -t: terse output, fields split by ":", easy to parse.
 _SCAN = ["nmcli", "-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi", "list",
          "--rescan"]
-_POWER = {"reboot": "restart", "poweroff": "shut down"}
+_POWER = {"reboot": "restart", "poweroff": "shut down"}  # systemctl verb -> words on screen
 
 _PERMISSION_HINTS = ("not authorized", "insufficient privileges")
+# Bits of nmcli's error messages that tell us what went wrong.
 # "802-11-wireless-security.psk: property is invalid" etc.: a password nmcli won't take.
 _WRONG_PASSWORD_HINTS = ("secrets were required", "no suitable secrets",
                          "802-11-wireless-security.")
@@ -94,6 +90,8 @@ class _Result(NamedTuple):
 def local_ip() -> str:
     """This machine's LAN address, "" if it has none. Sends no packets."""
     try:
+        # "Connecting" a UDP socket sends nothing, but makes the OS pick the
+        # network interface it would use; its address is the one we want.
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.connect(("10.255.255.255", 1))
             address = s.getsockname()[0]
@@ -127,7 +125,7 @@ class SystemActions:
         """The running code's commit and date, e.g. "c86efbe (2 Oct 2026)"."""
         result = self._exec(["git", "-C", str(self.repo_dir), "log", "-1", "--format=%h %cs"],
                             10)
-        words = result.out.split() if result.code == 0 else []
+        words = result.out.split() if result.code == 0 else []  # ["c86efbe", "2026-10-02"]
         if not words:
             return "unknown"
         try:
@@ -171,7 +169,8 @@ class SystemActions:
         result = self._exec(["vcgencmd", "get_throttled"], 5)
         if result.code != 0 or "=" not in result.out:
             return None
-        flags = int(result.out.split("=", 1)[1].strip(), 16)
+        flags = int(result.out.split("=", 1)[1].strip(), 16)  # "throttled=0x50000"
+        # Bit 0: under-voltage right now. Bit 16: under-voltage at some point since boot.
         if flags & 0x1:
             return "Power supply: too weak now!"
         if flags & 0x10000:
@@ -189,13 +188,13 @@ class SystemActions:
             return None
         for line in result.out.splitlines():
             fields = _terse_fields(line)
-            if len(fields) == 2 and fields[0] == "yes" and fields[1]:
+            if len(fields) == 2 and fields[0] == "yes" and fields[1]:  # "yes:MyNetwork"
                 return fields[1]
         return None
 
     def wifi_networks(self) -> list[WifiNetwork]:
         """Scan for networks: the one in use first, then strongest first."""
-        result = self._nmcli([*_SCAN, "yes"], 20)
+        result = self._nmcli([*_SCAN, "yes"], 20)  # --rescan yes: a fresh scan
         if result.code not in (0, NOT_FOUND, TIMED_OUT):
             # NetworkManager sometimes refuses a fresh scan (one just ran, or it's busy
             # connecting); what it saw last time is still worth showing.
@@ -206,7 +205,7 @@ class SystemActions:
             raise SystemActionError(NMCLI_MISSING)
         networks = _parse_scan(result.out) if result.code == 0 else []
         if not networks and self._wifi_off():
-            raise WifiOffError(WIFI_OFF)
+            raise WifiOffError(WIFI_OFF)  # the menu then offers to switch it on
         if result.code != 0:
             raise SystemActionError(_scan_error(result))
         log.info("Wi-Fi scan: %d network(s)", len(networks))
@@ -223,18 +222,15 @@ class SystemActions:
         log.info("Wi-Fi radio switched on")
 
     def wifi_connect(self, ssid: str, password: str | None) -> str:
-        """Join a network (the Pi remembers it). Returns the Pi's IP address, "" if unknown.
-
-        The password goes to nmcli on its standard input, where it asks for it
-        (--ask): never on a command line (which any program on the Pi can read,
-        and sudo logs), never logged or put in an error.
-        """
+        """Join a network (the Pi remembers it). Returns the Pi's IP address, "" if unknown."""
         if not ssid:
             raise SystemActionError("Pick a Wi-Fi network first.")
         argv = ["nmcli", "--wait", "30", "device", "wifi", "connect", ssid]
         if password:
+            # --ask makes nmcli read the password from stdin. A command-line argument
+            # could be seen by any program on the Pi (and sudo logs it).
             argv.insert(1, "--ask")
-        saved = self._saved_connections()
+        saved = self._saved_connections()  # to tell a new profile from an old one
         log.info("Wi-Fi: connecting to %r", ssid)
         result = self._nmcli(argv, 45, password + "\n" if password else None)
         if result.code == 0:
@@ -257,6 +253,7 @@ class SystemActions:
         return {_terse_fields(line)[0] for line in result.out.splitlines() if line}
 
     def _wifi_off(self) -> bool:
+        """True if the Wi-Fi radio is switched off (in software or by a switch)."""
         result = self._exec(["nmcli", "-t", "-f", "WIFI-HW,WIFI", "radio"], 5)
         return result.code == 0 and "disabled" in _terse_fields(result.out.strip())
 
@@ -273,7 +270,8 @@ class SystemActions:
                      ["systemctl", "--no-ask-password", action]):
             result = self._exec(argv, 30)
             if result.code == 0:
-                return
+                return  # the Pi is going down
+        # Both failed: explain using the last attempt's error.
         if result.code != NOT_FOUND and _mentions(result, _POLKIT_HINTS):
             reason = "the kiosk isn't allowed to."
         else:
@@ -306,7 +304,7 @@ class SystemActions:
         result = self._exec(argv, timeout, stdin)
         if result.code in (0, NOT_FOUND, TIMED_OUT) or not _mentions(result, _PERMISSION_HINTS):
             return result
-        retry = self._exec(["sudo", "-n", *argv], timeout, stdin)
+        retry = self._exec(["sudo", "-n", *argv], timeout, stdin)  # -n: never ask for a password
         if retry.code == NOT_FOUND or retry.err.lstrip().startswith("sudo:"):
             return result       # no sudo, or it wanted a password: report the first error
         return retry
@@ -318,7 +316,7 @@ def _terse_fields(line: str) -> list[str]:
     chars = iter(line)
     for ch in chars:
         if ch == "\\":
-            field.append(next(chars, ""))
+            field.append(next(chars, ""))  # keep the escaped character as it is
         elif ch == ":":
             fields.append("".join(field))
             field = []
@@ -346,10 +344,12 @@ def _parse_scan(output: str) -> list[WifiNetwork]:
         seen.signal = max(seen.signal, network.signal)
         seen.in_use = seen.in_use or network.in_use
         seen.secured = seen.secured or network.secured
+    # Sort: the network in use first (False sorts before True), then strongest, then A-Z.
     return sorted(found.values(), key=lambda n: (not n.in_use, -n.signal, n.ssid.lower()))
 
 
 def _signal(text: str) -> int:
+    """Signal strength text -> 0-100 (0 if it isn't a number)."""
     try:
         return min(100, max(0, int(text.strip())))
     except ValueError:
@@ -357,11 +357,13 @@ def _signal(text: str) -> int:
 
 
 def _mentions(result: _Result, hints: tuple[str, ...]) -> bool:
+    """True if the command's output contains any of the hints (ignoring case)."""
     text = f"{result.err}\n{result.out}".lower()
     return any(hint in text for hint in hints)
 
 
 def _scan_error(result: _Result) -> str:
+    """A short on-screen reason for a failed Wi-Fi scan."""
     if result.code == TIMED_OUT:
         return "The Wi-Fi scan took too long. Try again."
     if _mentions(result, _PERMISSION_HINTS):
@@ -370,6 +372,7 @@ def _scan_error(result: _Result) -> str:
 
 
 def _connect_error(result: _Result, password: str | None) -> str:
+    """A short on-screen reason for a failed connect (never containing the password)."""
     if result.code == NOT_FOUND:
         return NMCLI_MISSING
     if result.code == TIMED_OUT or _mentions(result, ("timeout expired",)):
@@ -396,6 +399,7 @@ def _short(text: str, limit: int = 80) -> str:
 
 
 def _trim(text: str, limit: int) -> str:
+    """Cut text to ``limit`` characters, ending with … if it was cut."""
     return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
 
 

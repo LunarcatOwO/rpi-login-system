@@ -20,6 +20,7 @@ UART_PINS = {14, 15}
 
 
 def reader_pins(config) -> set[int]:
+    """BCM pins the PN532 uses, so the keypad and buzzer can't be put on them."""
     nfc = config.hardware["nfc"]
     interface = nfc.get("interface", "spi")
     if interface == "spi":
@@ -32,6 +33,7 @@ def create_reader(config):
     if config.hardware["mode"] == "simulated":
         from nfc_login.hardware.simulated import SimulatedReader
         return SimulatedReader()
+    # Imported here: the PN532 library only installs on the Pi.
     from nfc_login.hardware.nfc_reader import PN532Reader
     nfc = config.hardware["nfc"]
     return PN532Reader(poll_timeout=nfc["poll_timeout_seconds"], nfc=nfc,
@@ -43,6 +45,7 @@ def create_keypad(config):
     k = config.hardware["keypad"]
     if config.hardware["mode"] == "simulated" or not k["enabled"]:
         return None
+    # Refuse to start rather than drive a pin the PN532 is using.
     clash = set(k["rows"] + k["cols"]) & reader_pins(config)
     if clash:
         raise ValueError(f"keypad pin(s) {sorted(clash)} are wired to the PN532 "

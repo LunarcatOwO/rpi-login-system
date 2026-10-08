@@ -8,12 +8,11 @@
 # Software Foundation, either version 3 of the License, or (at your option)
 # any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
 
-"""Sign-in / sign-out logic and per-user stats.
+"""Sign-in / sign-out logic and per-user stats."""
 
-Every scan toggles the user: signed out -> signed in, signed in -> signed out.
-Time is credited only from timestamps stored in MariaDB; nothing read from a
-card is ever used to compute hours.
-"""
+# Every scan toggles the person: signed out -> signed in -> signed out.
+# Hours only ever come from the times stored in MariaDB. Nothing read from a
+# card is used, so editing a card can't add hours.
 
 from __future__ import annotations
 
@@ -27,6 +26,7 @@ from nfc_login.services import leaderboard as lb
 from nfc_login.services import timefmt
 from nfc_login.services.pins import verify_pin
 
+# What a scan did.
 SIGNED_IN = "signed_in"
 SIGNED_OUT = "signed_out"
 IGNORED = "ignored"
@@ -37,7 +37,7 @@ class AttendanceError(Exception):
 
 
 class WrongPinError(AttendanceError):
-    pass
+    """Counted separately so the keypad can lock after too many wrong PINs."""
 
 
 @dataclass
@@ -67,6 +67,8 @@ class UserStats:
 
 @dataclass
 class ScanResult:
+    """What a scan did, plus the person's updated stats for the screen."""
+
     action: str                    # signed_in | signed_out | ignored
     stats: UserStats
     session_seconds: int = 0       # length of the session just closed
@@ -86,11 +88,12 @@ class AttendanceService:
         self.db = db
         self.min_interval = timedelta(seconds=min_scan_interval_seconds)
         self.max_session = timedelta(hours=max_session_hours)
-        self.clock = clock
+        self.clock = clock  # swapped for a fake clock in the tests
 
     # ------------------------------------------------------------ lookups
 
     def user_for_tag(self, uid: str) -> dict:
+        """The active user a card belongs to, or AttendanceError."""
         with self.db.transaction() as cur:
             tag = repo.find_tag(cur, uid)
             if not tag or not tag["is_active"]:
@@ -101,6 +104,7 @@ class AttendanceService:
         return user
 
     def check_keypad_login(self, user_id: int, pin: str) -> dict:
+        """Signing in by ID + PIN instead of a card: check the PIN."""
         with self.db.transaction() as cur:
             user = repo.get_user(cur, user_id)
         if not user or not user["is_active"]:
@@ -132,8 +136,9 @@ class AttendanceService:
                 raise AttendanceError("No active season. Run: nfc_login.admin season new")
 
             open_session = repo.get_open_session(cur, user_id)
-            if open_session:
+            if open_session:  # they're signed in: this scan signs them out
                 elapsed = now - open_session["sign_in_at"]
+                # A double tap within a few seconds would undo itself: ignore it.
                 if elapsed < self.min_interval:
                     action = IGNORED
                     notes.append("Already signed in a moment ago.")
@@ -145,11 +150,11 @@ class AttendanceService:
                     notes.append(
                         "Previous session was never signed out and earned no time."
                     )
-                else:
+                else:  # normal sign-out: credit the time since sign-in
                     session_seconds = int(elapsed.total_seconds())
                     repo.close_session(cur, open_session["id"], now, method, session_seconds)
                     action = SIGNED_OUT
-            else:
+            else:  # they're signed out: this scan signs them in
                 last_out = repo.get_last_sign_out(cur, user_id)
                 if last_out and now - last_out < self.min_interval:
                     action = IGNORED
@@ -158,17 +163,20 @@ class AttendanceService:
                     repo.open_session(cur, user_id, season["id"], now, method)
                     action = SIGNED_IN
 
+        # Stats are read after the commit, so they include this scan.
         stats = self.user_stats(user_id)
         return ScanResult(action, stats, session_seconds, notes)
 
     # ------------------------------------------------------------ stats
 
     def user_stats(self, user_id: int) -> UserStats:
+        """Season total, rank and last sign-in/out for one person."""
         with self.db.transaction() as cur:
             user = repo.get_user(cur, user_id)
             if not user:
                 raise AttendanceError("No user with that ID.")
             season = repo.get_active_season(cur)
+            # The rank needs everyone's totals, so build the whole leaderboard.
             entries = lb.leaderboard(cur, season["id"]) if season else []
             last = repo.get_last_session(cur, user_id)
             last_out = repo.get_last_sign_out(cur, user_id)
@@ -184,7 +192,7 @@ class AttendanceService:
             ranked_users=len(entries),
             last_sign_in=last["sign_in_at"] if last else None,
             last_sign_out=last_out,
-            signed_in=bool(last and last["sign_out_at"] is None),
+            signed_in=bool(last and last["sign_out_at"] is None),  # latest session still open
         )
 
     def active_season_name(self) -> str:
@@ -193,23 +201,22 @@ class AttendanceService:
         return season["name"] if season else "-"
 
     def leaderboard(self, limit: int | None = None) -> list[lb.LeaderboardEntry]:
+        """The current season's ranking, optionally only the top ``limit``."""
         with self.db.transaction() as cur:
             season = repo.get_active_season(cur)
             entries = lb.leaderboard(cur, season["id"]) if season else []
         return entries[:limit] if limit else entries
 
     def currently_signed_in(self) -> list[dict]:
+        """Everyone signed in right now (the "who's here" list)."""
         with self.db.transaction() as cur:
             return repo.list_open_sessions(cur)
 
     # ------------------------------------------------------------ admin corrections
 
     def adjust(self, user_id: int, seconds: int, reason: str = "", via: str = "cli") -> UserStats:
-        """Add (positive) or subtract (negative) time for the active season.
-
-        Recorded as its own row so every correction is visible and reversible.
-        A subtraction can't take someone below 0h 00m.
-        """
+        """Add (positive) or subtract (negative) time for the active season."""
+        # Saved as its own row (not by editing sessions), so every change is logged.
         if seconds == 0:
             raise AttendanceError("Enter an amount of time.")
         with self.db.transaction() as cur:
@@ -220,7 +227,7 @@ class AttendanceService:
             if not season:
                 raise AttendanceError("No active season.")
             current = repo.user_season_total(cur, user_id, season["id"])
-            if current + seconds < 0:
+            if current + seconds < 0:  # can't go below 0h 00m
                 raise AttendanceError(
                     f"{user['username']} only has {timefmt.format_duration(current)} this season."
                 )
@@ -229,6 +236,7 @@ class AttendanceService:
         return self.user_stats(user_id)
 
     def recent_adjustments(self, limit: int = 50) -> list[dict]:
+        """Latest hour changes this season, newest first."""
         with self.db.transaction() as cur:
             season = repo.get_active_season(cur)
             return repo.list_adjustments(cur, season["id"], limit) if season else []
@@ -260,6 +268,6 @@ class AttendanceService:
 def credited_seconds(sign_in_at: datetime, now: datetime, max_session: timedelta) -> int:
     """Seconds to credit for a session closed by the system rather than a scan."""
     elapsed = now - sign_in_at
-    if elapsed > max_session:
+    if elapsed > max_session:  # forgot to sign out: no credit
         return 0
     return max(0, int(elapsed.total_seconds()))

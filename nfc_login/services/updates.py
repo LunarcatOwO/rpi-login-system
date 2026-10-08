@@ -8,19 +8,12 @@
 # Software Foundation, either version 3 of the License, or (at your option)
 # any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
 
-"""Checks GitHub for a newer version of this install, and can install it.
+"""Checks GitHub for a newer version of this install, and can install it."""
 
-The Pi runs from a git clone (scripts/setup-pi.sh). Every few hours, if the
-Pi is online, this fetches the branch it follows and counts the new commits.
-That check only looks: nothing changes in the working copy. Offline, or not a
-git clone, it quietly does nothing.
-
-install() is what the kiosk admin menu runs to actually update (no keyboard
-needed): fast-forward to the new commits, install new Python packages if the
-requirements changed, then apply database schema changes with the new code.
-It never merges or overwrites local edits; if something goes wrong it says why
-in one short line (UpdateError) for the screen.
-"""
+# The Pi runs from a git clone (scripts/setup-pi.sh). check() only fetches and
+# counts new commits; nothing in the working copy changes. install() (admin menu,
+# System > 2) fast-forwards, reinstalls Python packages if requirements changed,
+# and updates the database. Offline or not a git clone: it quietly does nothing.
 
 from __future__ import annotations
 
@@ -35,9 +28,10 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-REPO_DIR = Path(__file__).resolve().parents[2]
-ONLINE_CHECK = ("github.com", 443)
+REPO_DIR = Path(__file__).resolve().parents[2]  # nfc_login/services/ -> repo folder
+ONLINE_CHECK = ("github.com", 443)              # "online" = can reach GitHub
 
+# Changes to these files mean extra steps after pulling.
 REQUIREMENTS = ("requirements-pi.txt", "requirements.txt")
 SETUP_FILES = ("scripts/setup-pi.sh", "scripts/install.sh", "scripts/nfc-login.service",
                "electron/package.json")
@@ -47,6 +41,7 @@ APP_NOTE = "The screen app changed too: restart the Pi (System menu) to finish."
 # setup-pi.sh has run again (it deletes this file). Listed in .gitignore.
 SETUP_MARKER = ".setup-needed"
 
+# Seconds before a command is given up on (pip on a Pi can be slow).
 GIT_TIMEOUT = 60
 PIP_TIMEOUT = 900
 INIT_DB_TIMEOUT = 120
@@ -75,7 +70,7 @@ class UpdateChecker:
         self.python = python
         self._run = run
         self._online = online or _online
-        self.new_commits = 0
+        self.new_commits = 0          # from the last check; > 0 shows "⬇ Update"
         self.automatic = False       # start() was called: checks run by themselves
         self.installing = False
         self._stopped = threading.Event()
@@ -84,6 +79,7 @@ class UpdateChecker:
 
     @property
     def available(self) -> bool:
+        """True when there's an update to install (shows the icon by the clock)."""
         return self.new_commits > 0 and not self.installing
 
     @property
@@ -92,6 +88,7 @@ class UpdateChecker:
         return (self.repo_dir / SETUP_MARKER).exists()
 
     def start(self) -> None:
+        """Check in the background every ``check_hours``."""
         self.automatic = True
         threading.Thread(target=self._loop, daemon=True, name="updates").start()
 
@@ -101,7 +98,7 @@ class UpdateChecker:
     def _loop(self) -> None:
         # First check a minute after start, so it doesn't slow down booting.
         wait = 60
-        while not self._stopped.wait(wait):
+        while not self._stopped.wait(wait):  # sleeps, but stop() wakes it early
             try:
                 self.check()
             except Exception:
@@ -115,12 +112,9 @@ class UpdateChecker:
     # ------------------------------------------------------------ checking
 
     def check(self, wait: bool = False) -> int | None:
-        """Fetch and count new commits. None if it couldn't tell (offline etc.).
-
-        The background check skips a turn if git is busy. wait=True (the admin
-        menu) waits for another check instead, but not for an install
-        (UpdateError, as there's nothing to check until it's done).
-        """
+        """Fetch and count new commits. None if it couldn't tell (offline etc.)."""
+        # The background check skips a turn if git is busy. wait=True (the admin
+        # menu) waits for another check instead, but not for an install.
         if self.installing:
             if wait:
                 raise UpdateError("An update is being installed.")
@@ -146,6 +140,7 @@ class UpdateChecker:
             return None
         if self._git("fetch", "--quiet") is None:
             return None
+        # HEAD..@{upstream}: commits on GitHub's branch that this copy doesn't have.
         count = self._git("rev-list", "--count", "HEAD..@{upstream}")
         if count is None or not count.isdigit():
             return None
@@ -210,6 +205,7 @@ class UpdateChecker:
         new = self._git_or_fail("Couldn't read the new version", "rev-parse", "HEAD")
         notes = [] if new != old else ["It was already up to date."]
 
+        # Only redo the steps the new commits need.
         changed = self._changed_files(old)
         if changed is None or any(name in changed for name in REQUIREMENTS):
             self._install_packages(old)
@@ -253,11 +249,9 @@ class UpdateChecker:
         self._undo(old, "Couldn't install the new Python packages", reason)
 
     def _apply_schema(self, old: str) -> None:
-        """Run init-db with the new code (schema statements are all IF NOT EXISTS).
-
-        If it fails the old code is put back: the running kiosk keeps working
-        and a restart doesn't start new code on a database it doesn't match.
-        """
+        """Run init-db with the new code (schema statements are all IF NOT EXISTS)."""
+        # If it fails the old code goes back, so a restart never runs new code on
+        # a database it doesn't match.
         config = ["--config", str(self.config_path)] if self.config_path else []
         cmd = [self.python, "-m", "nfc_login.admin", *config, "init-db"]
         try:
@@ -286,6 +280,7 @@ class UpdateChecker:
         raise UpdateError(f"{what}, so the update was undone: {reason}")
 
     def _mark_setup_needed(self) -> None:
+        """Leave the marker file so the System menu reminds to run setup-pi.sh."""
         try:
             (self.repo_dir / SETUP_MARKER).write_text(SETUP_NOTE + "\n")
         except OSError as exc:
@@ -325,6 +320,7 @@ def _reason(result, limit: int = 120) -> str:
 
 
 def _online() -> bool:
+    """True if a connection to GitHub opens within 3 seconds."""
     try:
         with socket.create_connection(ONLINE_CHECK, timeout=3):
             return True

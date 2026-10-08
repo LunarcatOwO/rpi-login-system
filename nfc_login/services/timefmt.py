@@ -22,11 +22,13 @@ def split_hours_minutes(total_seconds: int) -> tuple[int, int]:
 
 
 def format_duration(total_seconds: int) -> str:
+    """3720 -> '1h 02m'."""
     hours, minutes = split_hours_minutes(total_seconds)
     return f"{hours}h {minutes:02d}m"
 
 
 def format_timestamp(value: datetime | None) -> str:
+    """A date and time like '2026-10-08 15:30', or 'never'."""
     return value.strftime("%Y-%m-%d %H:%M") if value else "never"
 
 

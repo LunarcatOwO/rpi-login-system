@@ -8,23 +8,16 @@
 # Software Foundation, either version 3 of the License, or (at your option)
 # any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
 
-"""Elechouse PN532 NFC Module V3, over SPI (the default), I2C or UART (HSU).
+"""Elechouse PN532 NFC Module V3, over SPI (the default), I2C or UART (HSU)."""
 
-Wiring, DIP switch settings and why SPI is the default are in
-docs/hardware.md.
-
-Two kinds of card are written to:
-
-- NTAG21x stickers and cards (7-byte UID): NDEF from page 4, which phones read.
-- MIFARE Classic 1K (4-byte UID, the legacy system's cards): the same NDEF
-  bytes in the data blocks of sectors 1-15 using the factory key. Phones can't
-  read these, but the kiosk and other readers can.
-
-Reads and writes that fail part-way (the card wobbles, a bus glitch) are
-retried a few times while the card stays on the reader: the card is selected
-again, the MIFARE sector is unlocked again, and only the missing blocks are
-redone, all within a time budget so the kiosk never hangs on one card.
-"""
+# SPI wiring: SCK pin 23, MISO 21, MOSI 19, SS 29 (GPIO 5), VCC 3.3 V, GND.
+# DIP switches: SPI = 1 OFF, 2 ON (I2C = 1 ON, 2 OFF; UART = both OFF).
+#
+# Two kinds of card are written to:
+#   NTAG21x (7-byte UID): NDEF from page 4, which phones can read.
+#   MIFARE Classic 1K (4-byte UID, the legacy system's cards): the same bytes in
+#   the data blocks of sectors 1-15, unlocked with the factory key. Phones can't
+#   read these, but the kiosk can.
 
 from __future__ import annotations
 
@@ -32,9 +25,14 @@ import time
 
 from nfc_login.tags import ndef
 
+# NTAG memory is 4-byte "pages". Pages 0-2 hold the UID and lock bits, page 3
+# the capability container (CC: size, write access), user data starts at 4.
 FIRST_DATA_PAGE = 4
 CC_PAGE = 3
 PAGE_SIZE = 4
+
+# MIFARE Classic 1K: 16 sectors x 4 blocks of 16 bytes. The last block of each
+# sector (the "trailer") holds its keys, so only 3 blocks per sector hold data.
 
 CLASSIC_KEY = b"\xff" * 6          # factory default key A
 CLASSIC_AUTH_A = 0x60
@@ -44,7 +42,7 @@ CLASSIC_CAPACITY = len(CLASSIC_SECTORS) * 3 * CLASSIC_BLOCK_SIZE  # 720 bytes
 
 TRIES = 4                          # attempts per block, or passes over missing blocks
 BUDGET_SECONDS = 4.0               # give up on one card after this long
-RESELECT_TIMEOUT = 0.15
+RESELECT_TIMEOUT = 0.15            # seconds to wait for the card to answer again
 
 
 class TagWriteError(Exception):
@@ -56,13 +54,14 @@ class TagReadError(Exception):
 
 
 def uid_to_hex(uid: bytes) -> str:
+    """b"\\x04\\xa1..." -> "04A1...", how UIDs are stored in the database."""
     return bytes(uid).hex().upper()
 
 
 def classic_data_blocks():
     """Block numbers that hold data on a MIFARE Classic 1K (sector trailers skipped)."""
     for sector in CLASSIC_SECTORS:
-        for offset in range(3):
+        for offset in range(3):          # blocks 0-2 of the sector; 3 is the trailer
             yield sector * 4 + offset
 
 
@@ -90,6 +89,8 @@ def open_pn532(nfc: dict):
                 PN532.__init__(self, debug=False)
 
             def _wait_ready(self, timeout=1):
+                # Ask the PN532 for its status byte until it says 0x01 (ready).
+                # It sends bits in the opposite order to the Pi, hence reverse_bit.
                 cmd = bytearray([reverse_bit(_SPI_STATREAD), 0x00])
                 response = bytearray(2)
                 deadline = time.monotonic() + timeout
@@ -102,6 +103,7 @@ def open_pn532(nfc: dict):
                 return False
 
         spi = busio.SPI(board.SCK, board.MOSI, board.MISO)
+        # Chip select on its own GPIO (5 by default), not the Pi's CE0 pin.
         cs = digitalio.DigitalInOut(getattr(board, f"D{nfc.get('spi_cs_pin', 5)}"))
         pn532 = FastPN532SPI(spi, cs, nfc.get("spi_baudrate", 1_000_000))
     elif interface == "i2c":
@@ -114,12 +116,18 @@ def open_pn532(nfc: dict):
         pn532 = PN532_UART(port, debug=False)
     else:
         raise ValueError(f"hardware.nfc.interface must be spi, i2c or uart, not {interface!r}")
-    pn532.SAM_configuration()
+    pn532.SAM_configuration()  # put the PN532 in normal card-reading mode
     return pn532
 
 
 class PN532Reader:
-    """Reads card UIDs and reads/writes NDEF on NTAG21x and MIFARE Classic cards."""
+    """Reads card UIDs and reads/writes NDEF on NTAG21x and MIFARE Classic cards.
+
+    A read or write that fails part-way (the card wobbles, a wiring glitch) is
+    retried: the card is selected again, its MIFARE sector unlocked again, and
+    only the missing block redone, within ``budget`` seconds so the kiosk never
+    hangs on one card.
+    """
 
     def __init__(self, poll_timeout: float = 0.5, pn532=None, nfc: dict | None = None,
                  tries: int = TRIES, budget: float = BUDGET_SECONDS,
@@ -143,10 +151,11 @@ class PN532Reader:
         return self._firmware
 
     def read_uid(self) -> str | None:
+        """The UID of a card on the reader as hex, or None if there isn't one."""
         uid = self._pn532.read_passive_target(timeout=self.poll_timeout)
         if not uid:
             return None
-        self._uid = bytes(uid)
+        self._uid = bytes(uid)  # later reads/writes go to this card
         return uid_to_hex(uid)
 
     def is_classic(self) -> bool:
@@ -156,6 +165,7 @@ class PN532Reader:
     # ------------------------------------------------------------ retrying
 
     def _start(self) -> None:
+        """Start the time budget for one card read or write."""
         self._deadline = self._monotonic() + self.budget
 
     def _call(self, fn, *args):
@@ -174,9 +184,10 @@ class PN532Reader:
         """Run a command up to ``tries`` times, selecting the card again (and
         unlocking its sector, on MIFARE Classic) between attempts."""
         for attempt in range(self.tries):
-            if attempt:
+            if attempt:  # a retry: out of time, or the card is gone? stop
                 if self._monotonic() > self._deadline or not self._reselect():
                     return None
+                # A failed command locks a MIFARE sector again, so unlock it first.
                 if sector is not None and not self._call(self._auth, sector):
                     continue
             result = self._call(fn, *args)
@@ -185,6 +196,7 @@ class PN532Reader:
         return None
 
     def _auth(self, sector: int) -> bool:
+        # Unlock a MIFARE Classic sector by its first block, with key A.
         return self._pn532.mifare_classic_authenticate_block(
             self._uid, sector * 4, CLASSIC_AUTH_A, CLASSIC_KEY)
 
@@ -205,26 +217,27 @@ class PN532Reader:
             return CLASSIC_CAPACITY
         self._start()
         cc = self._read_page(CC_PAGE)
-        if not cc or cc[0] != 0xE1:
+        if not cc or cc[0] != 0xE1:  # 0xE1 marks an NDEF-formatted tag
             return None
         if cc[3] & 0x0F:  # write access bits: 0 means writable
             return None
-        return cc[2] * 8
+        return cc[2] * 8  # CC byte 2 is the data size in units of 8 bytes
 
     # ------------------------------------------------------------ writing
 
     def write_ndef(self, message: bytes) -> None:
+        """Write an NDEF message to the card that was just read."""
         capacity = self.ndef_capacity()
         if capacity is None:
             raise TagWriteError("tag is not a writable NTAG or MIFARE Classic card")
-        data = ndef.wrap_tlv(message)
+        data = ndef.wrap_tlv(message)  # the message plus its TLV start/end markers
         if len(data) > capacity:
             raise TagWriteError(f"message is {len(data)} bytes, tag holds {capacity}")
         self._start()
         if self.is_classic():
             self._write_classic(data)
             return
-        data += b"\x00" * (-len(data) % PAGE_SIZE)
+        data += b"\x00" * (-len(data) % PAGE_SIZE)  # pad to whole pages
         for offset in range(0, len(data), PAGE_SIZE):
             page = FIRST_DATA_PAGE + offset // PAGE_SIZE
             if not self._retry(self._pn532.ntag2xx_write_block, page,
@@ -232,7 +245,8 @@ class PN532Reader:
                 raise TagWriteError(f"write failed at page {page} (card moved?)")
 
     def _write_classic(self, data: bytes) -> None:
-        data += b"\x00" * (-len(data) % CLASSIC_BLOCK_SIZE)
+        data += b"\x00" * (-len(data) % CLASSIC_BLOCK_SIZE)  # pad to whole blocks
+        # Pair each 16-byte chunk with the next data block (trailers skipped).
         chunks = [data[i:i + CLASSIC_BLOCK_SIZE] for i in range(0, len(data), CLASSIC_BLOCK_SIZE)]
         blocks = list(zip(classic_data_blocks(), chunks))
         # Check every sector's key before writing anything, so a card with a
@@ -242,7 +256,7 @@ class PN532Reader:
         unlocked = None
         for block, chunk in blocks:
             sector = block // 4
-            if sector != unlocked:
+            if sector != unlocked:  # moved into a new sector: unlock it
                 self._unlock(sector)
                 unlocked = sector
             if not self._retry(self._pn532.mifare_classic_write_block, block, chunk,
@@ -252,13 +266,7 @@ class PN532Reader:
     # ------------------------------------------------------------ reading
 
     def read_ndef(self) -> bytes:
-        """The NDEF message on the card, read with retries.
-
-        Reads only as far as the message goes. A block that fails is tried
-        again (up to ``tries`` times) after selecting the card again, so a card
-        that wobbles still gets read in full. Raises TagReadError if the card
-        has no message or it couldn't all be read.
-        """
+        """The NDEF message on the card; TagReadError if there's none or it can't be read."""
         capacity = self.ndef_capacity()
         if capacity is None:
             raise TagReadError("not an NTAG or MIFARE Classic card")
@@ -285,6 +293,7 @@ class PN532Reader:
                 raise TagReadError(f"couldn't read block {block} after {self.tries} tries; "
                                    "hold the card still")
             data += chunk
+            # Stop as soon as the whole message is in, instead of reading every block.
             end = ndef.tlv_end(data)
             if end is not None and end <= len(data):
                 break

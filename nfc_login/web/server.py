@@ -8,18 +8,13 @@
 # Software Foundation, either version 3 of the License, or (at your option)
 # any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
 
-"""Small web server on the Pi, for phones and laptops on the same network.
+"""Small web server on the Pi, for phones and laptops on the same network."""
 
-    http://<pi-address>:8080/        live "who's here" + leaderboard (anyone)
-    http://<pi-address>:8080/admin   add/subtract hours, add users (admin PIN)
-    http://<pi-address>:8080/api/status   the live data as JSON
-
-Card enrollment is deliberately not offered here: it needs the physical card
-on the reader, so it's done at the kiosk (admin menu) or with the admin CLI.
-
-Standard library only (http.server). It runs inside the kiosk process, or on
-its own with ``python3 -m nfc_login.web``.
-"""
+#   /            live "who's here" + leaderboard (anyone)
+#   /admin       add/subtract hours, add users, change teams (admin PIN)
+#   /api/status  the live data as JSON
+# Cards can't be enrolled here: the card has to be on the reader (kiosk admin menu).
+# Plain HTTP, local network only: never forward port 8080 to the internet.
 
 from __future__ import annotations
 
@@ -44,7 +39,7 @@ from nfc_login.services.users import UserError
 log = logging.getLogger(__name__)
 
 SESSION_COOKIE = "nfc_admin"
-SESSION_SECONDS = 30 * 60
+SESSION_SECONDS = 30 * 60      # an admin login lasts 30 minutes of inactivity
 MAX_LOGIN_FAILURES = 5
 LOCKOUT_SECONDS = 60
 
@@ -73,6 +68,7 @@ def status_payload(services: Services, sections: list[dict], leaderboard_size: i
     return {
         "season": att.active_season_name(),
         "now": now.isoformat(timespec="seconds"),
+        # Teams for grouping the list, plus "No team yet" only if someone needs it.
         "sections": [{"letter": s["letter"], "name": s["name"]} for s in sections]
         + ([{"letter": ids.UNSORTED, "name": ids.UNSORTED_NAME}]
            if any(p["section"] == ids.UNSORTED for p in here) else []),
@@ -82,11 +78,9 @@ def status_payload(services: Services, sections: list[dict], leaderboard_size: i
 
 
 class AdminSessions:
-    """In-memory admin logins plus a PIN lockout.
-
-    Each login remembers the admin PIN (its hash) it was made with, so
-    changing the PIN, on the kiosk or the command line, logs everyone out.
-    """
+    """In-memory admin logins plus a PIN lockout."""
+    # Each login remembers the admin PIN hash it was made with, so changing the
+    # PIN (kiosk or command line) logs everyone out.
 
     def __init__(self):
         self._tokens: dict[str, tuple[float, str | None]] = {}   # token -> (expiry, PIN hash)
@@ -95,13 +89,15 @@ class AdminSessions:
         self._lock = threading.Lock()
 
     def create(self, pin_hash: str | None = None) -> str:
-        token = secrets.token_urlsafe(32)
+        """Log in: a new random token for the browser's cookie."""
+        token = secrets.token_urlsafe(32)  # unguessable
         with self._lock:
             self._tokens[token] = (time.monotonic() + SESSION_SECONDS, pin_hash)
             self._failures = 0
         return token
 
     def valid(self, token: str | None, pin_hash: str | None = None) -> bool:
+        """True if the token is a live login; each use extends it."""
         with self._lock:
             expiry, made_with = self._tokens.get(token or "", (0.0, None))
             if expiry < time.monotonic() or made_with != pin_hash:
@@ -118,6 +114,7 @@ class AdminSessions:
         return self._locked_until > time.monotonic()
 
     def failed(self) -> None:
+        """Count a wrong PIN; five in a row block logins for a minute."""
         with self._lock:
             self._failures += 1
             if self._failures >= MAX_LOGIN_FAILURES:
@@ -126,6 +123,7 @@ class AdminSessions:
 
 
 def make_handler(services: Services, sections: list[dict], refresh_seconds: float):
+    """The HTTP request handler class (http.server makes one per request)."""
     sessions = AdminSessions()
     section_names = {s["letter"]: s["name"] for s in sections}
 
@@ -145,7 +143,7 @@ def make_handler(services: Services, sections: list[dict], refresh_seconds: floa
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("X-Frame-Options", "DENY")  # no embedding in other sites
             for key, value in (headers or {}).items():
                 self.send_header(key, value)
             self.end_headers()
@@ -163,6 +161,7 @@ def make_handler(services: Services, sections: list[dict], refresh_seconds: floa
             self.end_headers()
 
         def _token(self) -> str | None:
+            """The login token from the browser's cookie, if any."""
             cookie = SimpleCookie(self.headers.get("Cookie", ""))
             return cookie[SESSION_COOKIE].value if SESSION_COOKIE in cookie else None
 
@@ -171,7 +170,7 @@ def make_handler(services: Services, sections: list[dict], refresh_seconds: floa
             return bool(token) and sessions.valid(token, services.users.admin_pin_hash())
 
         def _form(self) -> dict[str, str]:
-            length = min(int(self.headers.get("Content-Length") or 0), 10_000)
+            length = min(int(self.headers.get("Content-Length") or 0), 10_000)  # cap the size
             data = parse_qs(self.rfile.read(length).decode())
             return {k: v[0].strip() for k, v in data.items()}
 
@@ -185,6 +184,7 @@ def make_handler(services: Services, sections: list[dict], refresh_seconds: floa
         def do_GET(self):
             path = urlparse(self.path).path
             if path == "/":
+                # live.html is a template with one blank to fill: the refresh interval.
                 page = resources.files("nfc_login.web").joinpath("live.html").read_text()
                 self._html(page.replace("{{REFRESH_MS}}", str(int(refresh_seconds * 1000))))
             elif path == "/api/status":
@@ -207,7 +207,7 @@ def make_handler(services: Services, sections: list[dict], refresh_seconds: floa
             if path == "/admin/login":
                 self._login(form)
                 return
-            if not self._is_admin():
+            if not self._is_admin():  # everything else needs a login
                 self._redirect("/admin")
                 return
             actions = {
@@ -232,6 +232,8 @@ def make_handler(services: Services, sections: list[dict], refresh_seconds: floa
                 return
             if services.users.check_admin_pin(form.get("pin", "")):
                 token = sessions.create(services.users.admin_pin_hash())
+                # HttpOnly: page scripts can't read it. SameSite=Strict: other sites
+                # can't send it.
                 cookie = (f"{SESSION_COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/; "
                           f"Max-Age={SESSION_SECONDS}")
                 self._redirect("/admin", {"Set-Cookie": cookie})
@@ -244,6 +246,7 @@ def make_handler(services: Services, sections: list[dict], refresh_seconds: floa
             self._redirect("/admin", {"Set-Cookie": f"{SESSION_COOKIE}=; Max-Age=0; Path=/"})
 
         def _adjust(self, form):
+            """Add or subtract hours from the admin form."""
             try:
                 user = services.users.get_by_code(form.get("code", ""))
                 hours = int(form.get("hours") or 0)
@@ -264,6 +267,7 @@ def make_handler(services: Services, sections: list[dict], refresh_seconds: floa
                                  f"({stats.code}). New total: {stats.total_text}.")
 
         def _add_user(self, form):
+            """Create a user from the admin form."""
             try:
                 user = services.users.add(form.get("username", ""), form.get("section", ""),
                                           form.get("pin") or None)
@@ -274,6 +278,7 @@ def make_handler(services: Services, sections: list[dict], refresh_seconds: floa
                                  "Enroll their card at the kiosk: * → admin PIN → 1.")
 
         def _change_team(self, form):
+            """Move someone to another team (they get a new ID)."""
             try:
                 user = services.users.get_by_code(form.get("code", ""))
                 user = services.users.move(user["id"], form.get("section", ""))
@@ -305,6 +310,7 @@ def make_handler(services: Services, sections: list[dict], refresh_seconds: floa
 
 # ------------------------------------------------------------------ pages
 
+# CSS for the admin pages; follows the phone's light/dark setting.
 STYLE = """
 :root { color-scheme: light dark; --bg:#f5f7fa; --card:#fff; --text:#17202a; --muted:#5b6876;
         --line:#dde3ea; --accent:#2f7de1; --ok:#1f9d55; --err:#d64545; }
@@ -330,6 +336,7 @@ button { background:var(--accent); color:#fff; border:0; cursor:pointer; }
 
 
 def _page(title: str, body: str) -> str:
+    """Wrap body HTML in a full page."""
     return (f"<!doctype html><html><head><meta charset='utf-8'>"
             f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
             f"<title>{html.escape(title)}</title><style>{STYLE}</style></head>"
@@ -351,6 +358,9 @@ def login_page(message: str = "") -> str:
 
 def admin_page(services: Services, section_names: dict[str, str], message: str,
                error: bool) -> str:
+    """The admin page, built fresh from the database."""
+    # Every value from the database goes through html.escape, so a name like
+    # "<script>" shows as text instead of running.
     e = html.escape
     users = services.users.list()
     totals = {entry.code: entry for entry in services.attendance.leaderboard()}
@@ -446,19 +456,21 @@ def admin_page(services: Services, section_names: dict[str, str], message: str,
 
 def create_server(services: Services, sections: list[dict], host: str, port: int,
                   refresh_seconds: float = 3) -> ThreadingHTTPServer:
+    """The server, not yet started; one thread per request."""
     server = ThreadingHTTPServer((host, port), make_handler(services, sections, refresh_seconds))
     server.daemon_threads = True
     return server
 
 
 def start_in_background(services: Services, config) -> ThreadingHTTPServer | None:
+    """Start the web page in its own thread, if [web] enabled; None if it's off."""
     web = config.web
     if not web["enabled"]:
         return None
     try:
         server = create_server(services, config.sections, web["host"], web["port"],
                                web["refresh_seconds"])
-    except OSError as exc:
+    except OSError as exc:  # e.g. something else already uses the port
         log.error("web page not started on port %s: %s", web["port"], exc)
         return None
     threading.Thread(target=server.serve_forever, daemon=True, name="web").start()

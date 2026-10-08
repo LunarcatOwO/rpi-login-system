@@ -8,32 +8,18 @@
 # Software Foundation, either version 3 of the License, or (at your option)
 # any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
 
-"""Import users, cards and hours from the legacy attendance database.
+"""Import users, cards and hours from the legacy attendance database (read only)."""
 
-Legacy schema (github.com/aesom-e/attendance, database `attendance`):
-
-    users        userId, name, hours DECIMAL(10,2), rfidKey, loggedIn,
-                 lastLogin, lastLogout
-    pastseasons  userId, hours, name, seasonStartDate   (one row per user per old season)
-    records      recordId, userId, startTime, endTime, notes
-
-How it maps:
-
-    users.name, userId    -> a user with a U ID (U007) whose team an admin picks on
-                             their first card scan, or straight into the
-                             sections given with --sections;
-                             the legacy userId is kept in users.legacy_id
-    users.rfidKey         -> a card (see nfc_login.legacy.rfid)
-    users.hours           -> an adjustment in the active season
-    lastLogin/lastLogout  -> one zero-credit session so "last sign in/out" carry over;
-                             people logged in at import time stay signed in
-    pastseasons           -> one archived season per seasonStartDate, hours as adjustments
-    records               -> copied to legacy_records for reference (not counted again,
-                             since users.hours / pastseasons.hours already include them)
-
-The legacy database is only read. Users already imported (same legacy userId)
-are skipped, so the import can be run again to pick up new legacy users.
-"""
+# Legacy tables (github.com/aesom-e/attendance) and where each goes here:
+#   users.name, userId     -> a user with a U ID (U007) until they pick a team on
+#                             their first scan, or a team given with --sections
+#   users.rfidKey          -> a card (see rfid.py)
+#   users.hours            -> an hours adjustment in the active season
+#   lastLogin / lastLogout -> one zero-credit session so "last sign in/out" carry over
+#   pastseasons            -> one archived season per start date, hours as adjustments
+#   records                -> copied to legacy_records for reference only (their time
+#                             is already in users.hours, so it isn't counted twice)
+# Users already imported (same legacy userId) are skipped, so it can run again.
 
 from __future__ import annotations
 
@@ -55,6 +41,8 @@ IMPORT_REASON = "Imported from legacy system"
 
 @dataclass
 class ImportSummary:
+    """Counts printed at the end of an import."""
+
     users: int = 0
     skipped_users: int = 0
     cards: int = 0
@@ -69,7 +57,7 @@ class ImportSummary:
 
 
 class DryRun(Exception):
-    pass
+    """Raised inside the transaction to roll a --dry-run back."""
 
 
 def read_legacy(settings: dict) -> dict[str, list[dict]]:
@@ -84,6 +72,7 @@ def read_legacy(settings: dict) -> dict[str, list[dict]]:
         with conn.cursor() as cur:
             cur.execute("SELECT * FROM users ORDER BY userId")
             users = list(cur.fetchall())
+            # Older copies of the legacy system may not have these two tables.
             cur.execute("SHOW TABLES LIKE 'pastseasons'")
             past = []
             if cur.fetchone():
@@ -109,10 +98,13 @@ def _valid_time(value) -> datetime | None:
 
 
 def _seconds(hours) -> int:
+    """Legacy DECIMAL hours (e.g. 12.50) -> whole seconds; Decimal avoids float rounding."""
     return int(round(Decimal(str(hours or 0)) * 3600))
 
 
 class LegacyImporter:
+    """Copies the legacy data in one transaction: all of it goes in, or none."""
+
     def __init__(self, db: Database, sections: list[str] | None = None,
                  clock: Callable[[], datetime] = timefmt.now):
         self.db = db
@@ -126,7 +118,7 @@ class LegacyImporter:
             with self.db.transaction() as cur:
                 self._import(cur, data, summary)
                 if dry_run:
-                    raise DryRun()
+                    raise DryRun()  # rolls everything back but keeps the summary
         except DryRun:
             pass
         return summary
@@ -136,7 +128,7 @@ class LegacyImporter:
     def _import(self, cur, data, summary: ImportSummary) -> None:
         now = self.clock()
         season = repo.get_active_season(cur)
-        if not season:
+        if not season:  # fresh database: start a season named after this year
             name = str(now.year)
             repo.create_season(cur, name, now)
             season = repo.get_active_season(cur)
@@ -153,6 +145,7 @@ class LegacyImporter:
             user_id = new_ids.get(int(record["userId"]))
             if user_id is None:
                 continue
+            # INSERT IGNORE skips records already copied by an earlier run.
             cur.execute(
                 "INSERT IGNORE INTO legacy_records "
                 "(user_id, legacy_record_id, start_time, end_time, notes) "
@@ -171,8 +164,8 @@ class LegacyImporter:
             summary.skipped_users += 1
             return None
 
-        name = (legacy["name"] or f"User {legacy_id}").strip()[:64]
-        if repo.get_user_by_name(cur, name):
+        name = (legacy["name"] or f"User {legacy_id}").strip()[:64]  # column holds 64
+        if repo.get_user_by_name(cur, name):  # names are unique here
             name = f"{name[:55]} (old {legacy_id})"
             summary.warnings.append(f"Name already taken, imported as {name!r}")
         section, number = self._next_code(cur)
@@ -184,6 +177,8 @@ class LegacyImporter:
 
         key = int(legacy["rfidKey"] or 0)
         if key:
+            # A 4-byte card's full UID can be worked out now; a 7-byte card gets a
+            # placeholder UID that its first real scan replaces.
             uid = uid_for_legacy_key(key) or placeholder_uid(key)
             if repo.get_tag(cur, uid) or self._key_taken(cur, key):
                 summary.warnings.append(f"Card {key} of {name} already belongs to someone")
@@ -200,7 +195,7 @@ class LegacyImporter:
 
         last_in = _valid_time(legacy.get("lastLogin"))
         last_out = _valid_time(legacy.get("lastLogout"))
-        if last_in and legacy.get("loggedIn"):
+        if last_in and legacy.get("loggedIn"):  # here right now: stays signed in
             repo.open_session(cur, user_id, season["id"], last_in, "import")
             summary.signed_in += 1
         elif last_in and last_out and last_out >= last_in:
@@ -210,6 +205,7 @@ class LegacyImporter:
         return user_id
 
     def _import_past_seasons(self, cur, rows, new_ids, active, now, summary) -> None:
+        """One finished season per legacy start date, each person's hours as an adjustment."""
         dates = sorted({r["seasonStartDate"] for r in rows if r.get("seasonStartDate")})
         for i, start in enumerate(dates):
             season_rows = [r for r in rows if r["seasonStartDate"] == start
@@ -222,6 +218,7 @@ class LegacyImporter:
                 season_id = existing["id"]
             else:
                 started = _valid_time(start) or now
+                # A season ends when the next one starts (the last, when ours began).
                 ended = _valid_time(dates[i + 1]) if i + 1 < len(dates) else active["started_at"]
                 cur.execute(
                     "INSERT INTO seasons (name, started_at, ended_at, is_active) "
@@ -249,6 +246,7 @@ class LegacyImporter:
 
     @staticmethod
     def _key_taken(cur, key: int) -> bool:
+        """True if an active card already has this legacy number."""
         cur.execute("SELECT 1 FROM tags WHERE legacy_key = %s AND is_active = 1", (key,))
         return cur.fetchone() is not None
 

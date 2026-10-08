@@ -8,11 +8,10 @@
 # Software Foundation, either version 3 of the License, or (at your option)
 # any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
 
-"""Stand-ins for the NFC reader so the kiosk runs on any computer.
+"""A pretend NFC reader so the kiosk runs on any computer (--simulate)."""
 
-In simulated mode the UI shows a small "tap card" box and maps the computer
-keyboard to the keypad (see docs/usage.md).
-"""
+# In simulated mode the screen shows a "tap card" box that calls tap(), and the
+# computer keyboard acts as the keypad (Enter = #, Backspace/Esc = *).
 
 from __future__ import annotations
 
@@ -21,10 +20,12 @@ import threading
 from nfc_login.hardware.nfc_reader import TagWriteError
 from nfc_login.tags import ndef
 
-NTAG215_CAPACITY = 496
+NTAG215_CAPACITY = 496  # bytes of card memory the NDEF data can use
 
 
 class SimulatedReader:
+    """Same methods as PN532Reader; cards are UIDs typed into the screen."""
+
     def __init__(self, capacity: int | None = NTAG215_CAPACITY):
         self.capacity = capacity
         self.memory: dict[str, bytes] = {}   # uid -> last NDEF TLV written
@@ -43,7 +44,7 @@ class SimulatedReader:
         self._tapped.set()
 
     def read_uid(self) -> str | None:
-        self._tapped.wait(timeout=0.5)
+        self._tapped.wait(timeout=0.5)  # like the real reader, give up after a moment
         with self._lock:
             uid, self._present = self._present, None
             if uid:
