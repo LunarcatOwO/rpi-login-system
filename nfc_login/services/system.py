@@ -1,3 +1,13 @@
+# rpi-login-system: NFC sign-in kiosk for a Raspberry Pi 4 B
+# Created by LunarcatOwO (https://github.com/LunarcatOwO)
+# Copyright (C) 2026 LunarcatOwO
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
+
 """What the kiosk admin menu can do to the Pi itself: system info, Wi-Fi, restart.
 
 The kiosk has no keyboard, so this is how an admin puts the Pi on a new Wi-Fi
@@ -97,6 +107,12 @@ def _read_text(path: str | Path) -> str:
 
 
 class SystemActions:
+    """Runs the Pi's own commands (nmcli, systemctl, ...) for the System menu.
+
+    ``run``, ``read_text``, ``ip`` and ``disk_usage`` can be swapped out so the
+    tests work without a real Pi.
+    """
+
     def __init__(self, repo_dir: Path = REPO_DIR, run=subprocess.run, read_text=_read_text,
                  ip=local_ip, disk_usage=shutil.disk_usage):
         self.repo_dir = Path(repo_dir)

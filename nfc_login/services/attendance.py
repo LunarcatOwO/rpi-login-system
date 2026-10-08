@@ -1,3 +1,13 @@
+# rpi-login-system: NFC sign-in kiosk for a Raspberry Pi 4 B
+# Created by LunarcatOwO (https://github.com/LunarcatOwO)
+# Copyright (C) 2026 LunarcatOwO
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
+
 """Sign-in / sign-out logic and per-user stats.
 
 Every scan toggles the user: signed out -> signed in, signed in -> signed out.
@@ -32,6 +42,8 @@ class WrongPinError(AttendanceError):
 
 @dataclass
 class UserStats:
+    """One person's totals for the current season, as shown after a scan."""
+
     user_id: int                   # internal key
     code: str                      # the user ID people see, e.g. A007 (or 007 for a mentor)
     section: str
@@ -62,6 +74,8 @@ class ScanResult:
 
 
 class AttendanceService:
+    """Signs people in and out and works out their hours from database times."""
+
     def __init__(
         self,
         db: Database,

@@ -4,8 +4,8 @@
   "version": "0.3.0",
   "description": "Desktop app for the NFC sign-in kiosk: starts the Python kiosk and shows its screen fullscreen.",
   "main": "main.js",
-  "license": "MIT",
-  "author": "rpi-login-system",
+  "license": "GPL-3.0-or-later",
+  "author": "LunarcatOwO",
   "homepage": "https://github.com/LunarcatOwO/rpi-login-system",
   "scripts": {
     "start": "electron . --windowed",

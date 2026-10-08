@@ -1,3 +1,13 @@
+# rpi-login-system: NFC sign-in kiosk for a Raspberry Pi 4 B
+# Created by LunarcatOwO (https://github.com/LunarcatOwO)
+# Copyright (C) 2026 LunarcatOwO
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
+
 """Kiosk behaviour: what happens on a card scan or a key press.
 
 The controller knows nothing about Tkinter. Each handler returns a ``Screen``
@@ -203,6 +213,14 @@ def _start_thread(fn: Callable[[], None]) -> None:
 
 
 class KioskController:
+    """The kiosk's state machine.
+
+    ``self.state`` says which screen is up (IDLE, ADMIN_PIN, PEOPLE_MENU, ...),
+    ``self.buffer`` holds what has been typed on it so far, and ``self.context``
+    carries data between steps (e.g. the user being edited). Each card scan or
+    key press moves the state on and returns the next Screen to draw.
+    """
+
     def __init__(
         self,
         attendance: AttendanceService,
@@ -432,6 +450,7 @@ class KioskController:
             return None
 
     def _star(self) -> Screen:
+        """* key: opens the admin menu from idle, otherwise backspace or back."""
         if self.state == IDLE:
             if not self.users.admin_pin_set():
                 return self._result("No admin PIN",
@@ -561,6 +580,7 @@ class KioskController:
     # -- PINs
 
     def _pin_key(self, key: str) -> Screen:
+        """A key pressed on any PIN screen: digits are typed, # submits."""
         if key == "D" and self.state == USERPIN_NEW and self.context["user"]["pin_hash"]:
             return self._confirm("remove_pin", PEOPLE_MENU, user=self.context["user"])
         if key.isdigit():
@@ -1061,6 +1081,7 @@ class KioskController:
     # ------------------------------------------------------------ drawing
 
     def _redraw(self) -> Screen:
+        """Build the Screen for the current state, without changing anything."""
         state, ctx = self.state, self.context
         if state == ADMIN_MENU:
             lines = ["1  People: add, cards, teams, PINs",
