@@ -1,3 +1,13 @@
+# rpi-login-system: NFC sign-in kiosk for a Raspberry Pi 4 B
+# Created by LunarcatOwO (https://github.com/LunarcatOwO)
+# Copyright (C) 2026 LunarcatOwO
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
+
 """Elechouse PN532 NFC Module V3, over SPI (the default), I2C or UART (HSU).
 
 Wiring, DIP switch settings and why SPI is the default are in

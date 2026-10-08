@@ -1,3 +1,13 @@
+# rpi-login-system: NFC sign-in kiosk for a Raspberry Pi 4 B
+# Created by LunarcatOwO (https://github.com/LunarcatOwO)
+# Copyright (C) 2026 LunarcatOwO
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
+
 """Checks GitHub for a newer version of this install, and can install it.
 
 The Pi runs from a git clone (scripts/setup-pi.sh). Every few hours, if the
@@ -54,6 +64,8 @@ class InstallResult:
 
 
 class UpdateChecker:
+    """Checks git for new commits every few hours and installs them on request."""
+
     def __init__(self, repo_dir: Path = REPO_DIR, check_hours: float = 6,
                  run=subprocess.run, online=None, config_path: str | Path | None = None,
                  python: str = sys.executable):
@@ -183,6 +195,7 @@ class UpdateChecker:
             self._lock.release()
 
     def _install(self) -> InstallResult:
+        """Pull the new commits, then redo only the setup steps those commits need."""
         if not self._is_clone():
             raise UpdateError("This copy wasn't installed with git, so it can't update itself.")
         if not self._online():

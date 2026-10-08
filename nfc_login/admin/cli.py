@@ -1,3 +1,13 @@
+# rpi-login-system: NFC sign-in kiosk for a Raspberry Pi 4 B
+# Created by LunarcatOwO (https://github.com/LunarcatOwO)
+# Copyright (C) 2026 LunarcatOwO
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
+
 """Admin command-line tool.
 
     python3 -m nfc_login.admin --help
@@ -281,6 +291,7 @@ def cmd_hours_history(s, args, config):
 
 
 def cmd_import_legacy(s, args, config):
+    """Copy users, cards and hours from the old attendance database into this one."""
     from nfc_login.legacy.importer import (LegacyImporter, read_legacy,
                                            settings_from_legacy_config)
     if args.legacy_config:
@@ -325,6 +336,7 @@ def cmd_sessions_close_stale(s, args, config):
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Describe every admin sub-command and its options (shown by --help)."""
     p = argparse.ArgumentParser(prog="python3 -m nfc_login.admin",
                                 description="Admin tool for the NFC login system")
     p.add_argument("--config", help="path to config.toml")

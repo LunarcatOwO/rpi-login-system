@@ -123,3 +123,9 @@ NFC_LOGIN_TEST_DB_USER=root pytest         # plus database tests (needs MariaDB)
 ```
 
 The database tests create and drop a `nfc_login_test` database.
+
+## License
+
+Created by [LunarcatOwO](https://github.com/LunarcatOwO). Released under the
+GNU General Public License v3.0 or later; see [LICENSE](LICENSE). Each source
+file starts with a short header saying the same.

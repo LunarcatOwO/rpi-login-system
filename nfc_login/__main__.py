@@ -1,3 +1,13 @@
+# rpi-login-system: NFC sign-in kiosk for a Raspberry Pi 4 B
+# Created by LunarcatOwO (https://github.com/LunarcatOwO)
+# Copyright (C) 2026 LunarcatOwO
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
+
 """Start the kiosk:  python3 -m nfc_login [--config config.toml] [--simulate]
 
 With --web-ui the screen is served as a local web page instead of a Tkinter
@@ -23,6 +33,7 @@ from nfc_login.web.server import start_in_background
 
 
 def main() -> None:
+    """Read the command line, build the services and run the kiosk until it closes."""
     parser = argparse.ArgumentParser(description="NFC sign-in kiosk")
     parser.add_argument("--config", help="path to config.toml")
     parser.add_argument("--simulate", action="store_true",

@@ -1,3 +1,13 @@
+# rpi-login-system: NFC sign-in kiosk for a Raspberry Pi 4 B
+# Created by LunarcatOwO (https://github.com/LunarcatOwO)
+# Copyright (C) 2026 LunarcatOwO
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
+
 """Import users, cards and hours from the legacy attendance database.
 
 Legacy schema (github.com/aesom-e/attendance, database `attendance`):
@@ -154,6 +164,7 @@ class LegacyImporter:
 
     def _import_user(self, cur, legacy: dict, season: dict, now: datetime,
                      summary: ImportSummary) -> int | None:
+        """Create one legacy user here with a fresh ID; None if already imported."""
         legacy_id = int(legacy["userId"])
         cur.execute("SELECT id FROM users WHERE legacy_id = %s", (legacy_id,))
         if cur.fetchone():

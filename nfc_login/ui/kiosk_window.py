@@ -1,3 +1,13 @@
+# rpi-login-system: NFC sign-in kiosk for a Raspberry Pi 4 B
+# Created by LunarcatOwO (https://github.com/LunarcatOwO)
+# Copyright (C) 2026 LunarcatOwO
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option)
+# any later version. It comes WITHOUT ANY WARRANTY; see the LICENSE file.
+
 """Tkinter kiosk window sized for the 5 inch 800x480 touchscreen.
 
 Layout:
@@ -88,6 +98,9 @@ FRAME_MS = 33               # ~30 frames a second for the spinner and the hold b
 
 
 class KioskWindow:
+    """The fullscreen Tkinter window: draws each Screen and feeds key presses and
+    card scans to the controller."""
+
     def __init__(self, root: tk.Tk, controller: KioskController, ui_config: dict,
                  simulated_reader=None, buzzer=None, updates=None):
         self.root = root
@@ -136,6 +149,8 @@ class KioskWindow:
     # ------------------------------------------------------------ layout
 
     def _build(self, simulated_reader) -> None:
+        """Create the widgets once: header with the clock, message area, the
+        who's-here / leaderboard side panel and the typing footer."""
         big = ("DejaVu Sans", 24, "bold")
         normal = ("DejaVu Sans", 14)
         small = ("DejaVu Sans", 11)
@@ -347,6 +362,7 @@ class KioskWindow:
         self.events.put(("screen", screen))
 
     def show(self, screen: Screen, sound: bool = True) -> None:
+        """Draw a Screen from the controller (and beep, unless sound is False)."""
         if sound and self.buzzer:
             self.buzzer.play(screen.buzz)
         color = COLORS.get(screen.tone, COLORS["text"])
