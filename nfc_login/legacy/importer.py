@@ -70,18 +70,27 @@ def read_legacy(settings: dict) -> dict[str, list[dict]]:
     )
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT * FROM users ORDER BY userId")
+            # Columns are named one by one with an alias because real legacy
+            # databases spell them inconsistently (records has recordID, userID,
+            # starttime). SQL ignores the case; the dict keys we get back don't.
+            cur.execute("SELECT userId AS userId, name AS name, hours AS hours, "
+                        "rfidKey AS rfidKey, loggedIn AS loggedIn, lastLogin AS lastLogin, "
+                        "lastLogout AS lastLogout FROM users ORDER BY userId")
             users = list(cur.fetchall())
             # Older copies of the legacy system may not have these two tables.
             cur.execute("SHOW TABLES LIKE 'pastseasons'")
             past = []
             if cur.fetchone():
-                cur.execute("SELECT * FROM pastseasons ORDER BY seasonStartDate, userId")
+                cur.execute("SELECT userId AS userId, hours AS hours, "
+                            "seasonStartDate AS seasonStartDate FROM pastseasons "
+                            "ORDER BY seasonStartDate, userId")
                 past = list(cur.fetchall())
             cur.execute("SHOW TABLES LIKE 'records'")
             records = []
             if cur.fetchone():
-                cur.execute("SELECT * FROM records ORDER BY recordId")
+                cur.execute("SELECT recordId AS recordId, userId AS userId, "
+                            "startTime AS startTime, endTime AS endTime, notes AS notes "
+                            "FROM records ORDER BY recordId")
                 records = list(cur.fetchall())
     finally:
         conn.close()
