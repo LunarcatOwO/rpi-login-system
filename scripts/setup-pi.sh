@@ -21,6 +21,7 @@
 #
 # Pass a downloaded nfc-kiosk-*-arm64.deb to install that instead of fetching
 # Electron:  bash scripts/setup-pi.sh path/to/nfc-kiosk-0.2.0-arm64.deb
+# --skip-admin-pin and --no-reboot leave those two steps out.
 set -euo pipefail   # stop at the first error or unset variable
 
 if [ "$(id -u)" -eq 0 ]; then
@@ -31,15 +32,26 @@ fi
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ELECTRON_VERSION="44.5.1"          # keep in step with electron/package-lock.json
 APP_DIR="$HOME/.local/share/nfc-kiosk"
-DEB="${1:-}"                       # optional first argument
+DEB=""                             # optional .deb to install
+ASK_PIN=1
+ASK_REBOOT=1
+for arg in "$@"; do
+    case "$arg" in
+        --skip-admin-pin) ASK_PIN=0 ;;
+        --no-reboot) ASK_REBOOT=0 ;;
+        *) DEB="$arg" ;;
+    esac
+done
 cd "$REPO_DIR"
 
 echo "==> 1/5 Packages, SPI, database and Python (scripts/install.sh)"
 bash "$REPO_DIR/scripts/install.sh"
 
 echo "==> 2/5 Admin PIN"
+if [ "$ASK_PIN" -eq 0 ]; then
+    echo "Skipped (set it later with: .venv/bin/python -m nfc_login.admin set-admin-pin)"
 # A tiny Python script: exit code 0 if an admin PIN is already set.
-if .venv/bin/python - <<'PY'
+elif .venv/bin/python - <<'PY'
 import sys
 from nfc_login.app import build_services
 from nfc_login.config import load_config
@@ -103,6 +115,7 @@ echo "==> 5/5 Done"
 echo "After a reboot the kiosk opens fullscreen by itself. To close it: admin menu 3, then 6"
 echo "on the keypad (or Ctrl+Alt+Q). Reopen it from the desktop menu: NFC Kiosk."
 echo "Add people on the kiosk: press *, the admin PIN, #, then 1 People, 1 Add a user."
+[ "$ASK_REBOOT" -eq 1 ] || exit 0
 read -r -p "Reboot now? [Y/n] " answer
 case "$answer" in
     [nN]*) echo "Reboot when you're ready: sudo reboot" ;;

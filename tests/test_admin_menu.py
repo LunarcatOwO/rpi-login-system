@@ -492,3 +492,29 @@ def test_who_is_here_pages(services, clock):
     assert len(controller._redraw().lines) == 3 + 2
     assert press(controller, "#").lines[-2] == "Page 1 of 3"            # round again
     assert press(controller, "*").title == "Hours and sign-ins"
+
+
+def test_list_deactivated_people(services):
+    controller, users, _jobs, _published, _system = make(services)
+    screen = press(controller, "*2468#18")
+    assert screen.title == "Deactivated: 0" and screen.lines[0] == "Nobody"
+    assert press(controller, "*").title == "People"
+    for n in range(10):
+        users.add(f"Person {n}", "B")
+    for code in ("B002", "B005", *[f"B{n:03d}" for n in range(6, 11)], "B004", "B003"):
+        users.set_active(code, False)
+    screen = press(controller, "8")
+    assert screen.title == "Deactivated: 9" and screen.lines[0] == "B002  Person 1"
+    assert screen.lines[-1] == "#  next page      *  back"
+    screen = press(controller, "#")
+    assert screen.lines[0] == "B010  Person 9" and screen.lines[-2].startswith("Page 2 of 2")
+    assert press(controller, "*").title == "People"
+
+
+def test_minimize_keeps_the_kiosk_running(services):
+    controller, users, _jobs, _published, _system = make(services)
+    assert "9  Minimize the kiosk app" in press(controller, "*2468#3").lines
+    screen = press(controller, "9")
+    assert screen.minimize_app and not screen.close_app and controller.state == kc.IDLE
+    users.enroll_tag("04AA", users.add("Taylor", "D")["id"])
+    assert controller.handle_card("04AA").title == "Welcome, Taylor!"   # still counting

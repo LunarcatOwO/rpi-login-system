@@ -92,7 +92,8 @@ def cmd_user_list(s, args, config):
     names = s.users.section_names
     rows = [[u["code"], u["username"], names.get(u["section"], u["section"]),
              "yes" if u["pin_hash"] else "no", "active" if u["is_active"] else "inactive"]
-            for u in s.users.list(include_inactive=args.all)]
+            for u in s.users.list(include_inactive=args.all or args.deactivated)
+            if not (args.deactivated and u["is_active"])]
     _table(rows, ["ID", "Username", "Section", "PIN", "Status"])
 
 
@@ -214,7 +215,7 @@ def cmd_season_list(s, args, config):
 
 def cmd_season_new(s, args, config):
     current = s.seasons.active()
-    name = args.name or str(timefmt.now().year)
+    name = args.name or s.seasons.next_name()   # the year, or 2026-2 if that's taken
     if not args.yes:
         print(f"This ends season {current['name'] if current else '(none)'!r}, signs everyone "
               f"out, and starts season {name!r} with everyone at 0h 00m.")
@@ -297,6 +298,12 @@ def cmd_import_legacy(s, args, config):
                                            settings_from_legacy_config)
     if args.legacy_config:
         settings = settings_from_legacy_config(args.legacy_config)
+    elif args.kiosk_login:
+        # A copy of the old database loaded onto this Pi (from a dump):
+        # read it with this kiosk's own login from config.toml.
+        db = config.database
+        settings = {"host": db["host"], "port": db.get("port", 3306), "user": db["user"],
+                    "password": db["password"], "database": args.database}
     else:
         settings = {"host": args.host, "port": args.port, "user": args.user,
                     "password": args.password, "database": args.database}
@@ -359,6 +366,7 @@ def build_parser() -> argparse.ArgumentParser:
     c.set_defaults(func=cmd_user_add)
     c = user.add_parser("list", help="list users")
     c.add_argument("--all", action="store_true", help="include deactivated users")
+    c.add_argument("--deactivated", action="store_true", help="only deactivated users")
     c.set_defaults(func=cmd_user_list)
     for name, func, helptext in [("show", cmd_user_show, "time, rank and last sign in/out"),
                                  ("deactivate", cmd_user_deactivate, "hide a user"),
@@ -401,7 +409,7 @@ def build_parser() -> argparse.ArgumentParser:
     season.add_parser("show", help="show the active season").set_defaults(func=cmd_season_show)
     season.add_parser("list", help="list all seasons").set_defaults(func=cmd_season_list)
     c = season.add_parser("new", help="season reset: archive this season and start a new one")
-    c.add_argument("name", nargs="?", help="new season name (default: current year)")
+    c.add_argument("name", nargs="?", help="new season name (default: the year, or 2026-2 if taken)")
     c.add_argument("--yes", action="store_true", help="don't ask for confirmation")
     c.set_defaults(func=cmd_season_new)
     c = season.add_parser("leaderboard", help="show a season's leaderboard")
@@ -427,6 +435,8 @@ def build_parser() -> argparse.ArgumentParser:
     c = sub.add_parser("import-legacy",
                        help="import users, cards and hours from the legacy attendance system")
     c.add_argument("--legacy-config", help="the legacy system's config.json (has its DB login)")
+    c.add_argument("--kiosk-login", action="store_true",
+                   help="read --database with this kiosk's own DB login (a copy loaded here)")
     c.add_argument("--host", default="localhost")
     c.add_argument("--port", type=int, default=3306)
     c.add_argument("--user", default="php", help="legacy DB user (default: php, read-only)")

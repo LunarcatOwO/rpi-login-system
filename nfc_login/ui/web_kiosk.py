@@ -97,11 +97,13 @@ class WebKiosk:
             self._control("close")
         if getattr(screen, "restart_app", False):
             self._control("restart")
+        if getattr(screen, "minimize_app", False):
+            self._control("minimize")
         if screen.refresh_leaderboard:
             self._send({"type": "refresh"})
 
     def _control(self, command: str) -> None:
-        """Ask the Electron app to close or restart (System menu, or an installed update)."""
+        """Ask the Electron app to close, restart or minimize (System menu, or an update)."""
         # The app only listens on its private pipe, never the log, so nothing
         # written to the log (like a web page request) can close the kiosk.
         if self.control is not None:
@@ -115,6 +117,8 @@ class WebKiosk:
         if command == "close":
             # Older copies of the app quit on this line.
             log.info("kiosk: close requested from the admin menu")
+        elif command == "minimize":
+            log.info("kiosk: minimize needs the desktop app; nothing to do here")
         elif self.on_restart is not None:
             log.info("kiosk: restarting the kiosk program")
             self.restart_requested = True

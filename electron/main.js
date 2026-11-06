@@ -67,6 +67,14 @@ let ready = false;              // the kiosk screen is showing (not the status p
 // Wayland (Raspberry Pi OS Bookworm and later) or X11, whichever the desktop runs.
 app.commandLine.appendSwitch("ozone-platform-hint", "auto");
 
+// One copy at a time (two can't share the reader): opening NFC Kiosk again from
+// the desktop menu just brings this one back. A restart's new copy may start
+// while the old one is still exiting, so it waits for the lock instead of quitting.
+const RELAUNCHED = process.env.NFC_KIOSK_RELAUNCHED === "1";
+delete process.env.NFC_KIOSK_RELAUNCHED;
+let haveLock = app.requestSingleInstanceLock();
+if (!haveLock && !RELAUNCHED) app.exit(0);
+
 // ------------------------------------------------------------ status screen
 
 // The boot checklist: [id, label shown on screen].
@@ -208,12 +216,31 @@ const PROGRESS = [
 const CONTROL = {
   close: () => setTimeout(() => app.quit(), 2500),     // System > 6 in the admin menu
   restart: () => setTimeout(restart, 2500),            // System > 5, or an update installed
+  minimize: () => setTimeout(minimize, 2500),          // System > 9
 };
+
+// Hide the window; the Python kiosk keeps running, so card scans still count.
+function minimize() {
+  if (!win) return;
+  if (WINDOWED) return win.minimize();
+  win.setKiosk(false);                    // desktops won't minimize a kiosk window
+  setTimeout(() => win.minimize(), 300);  // give it a moment to leave fullscreen
+}
+
+// Back from the taskbar or the desktop menu: fullscreen kiosk again.
+function showKiosk() {
+  if (!win) return;
+  if (win.isMinimized()) win.restore();
+  if (!WINDOWED && !win.isKiosk()) win.setKiosk(true);
+  win.show();
+  win.focus();
+}
 
 // Quit, then start a fresh copy of the app (System > 5, or after an update).
 function restart() {
   if (quitting) return;
   restarting = true;
+  process.env.NFC_KIOSK_RELAUNCHED = "1";
   process.env.NFC_KIOSK_STARTED_DB = startedDatabase ? "1" : "";
   // relaunch() starts a new copy once this one has quit (before-quit stops the kiosk
   // first). An AppImage must be started through its own file, not the unpacked one.
@@ -367,7 +394,13 @@ function createWindow() {
     if (!url.startsWith(URL) && !url.startsWith("file://")) event.preventDefault();
   });
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  // Wayland doesn't always report "restore", so getting focus back counts too.
+  for (const event of ["restore", "focus"]) {
+    win.on(event, () => { if (!WINDOWED && !win.isMinimized() && !win.isKiosk()) win.setKiosk(true); });
+  }
 }
+
+app.on("second-instance", showKiosk);
 
 app.whenReady().then(() => {
   // Refuse every permission request (camera, microphone, ...).
@@ -375,6 +408,12 @@ app.whenReady().then(() => {
   globalShortcut.register("Control+Alt+Q", () => app.quit());
   createWindow();
   boot();
+  // A restarted copy takes the lock once the old copy has gone.
+  if (!haveLock) {
+    const timer = setInterval(() => {
+      if ((haveLock = app.requestSingleInstanceLock())) clearInterval(timer);
+    }, 1000);
+  }
 });
 
 // Every quit goes through here: hold it until shutdown() has cleaned up.
