@@ -48,9 +48,9 @@ def rank_totals(rows: list[dict]) -> list[LeaderboardEntry]:
     return entries
 
 
-def leaderboard(cur, season_id: int) -> list[LeaderboardEntry]:
+def leaderboard(cur, season_id: int, include_inactive: bool = False) -> list[LeaderboardEntry]:
     """Rank everyone's totals for a season."""
-    return rank_totals(repo.season_totals(cur, season_id))
+    return rank_totals(repo.season_totals(cur, season_id, include_inactive))
 
 
 def find_entry(entries: list[LeaderboardEntry], user_id: int) -> LeaderboardEntry | None:

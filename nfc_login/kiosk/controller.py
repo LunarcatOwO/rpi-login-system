@@ -83,6 +83,8 @@ ADJUST_ID = "adjust_id"
 ADJUST_AMOUNT = "adjust_amount"
 TOGGLE_ID = "toggle_id"       # sign someone in or out without a PIN
 SEASON_PIN = "season_pin"     # admin PIN again before starting a new season
+PAST_LIST = "past_list"       # the finished seasons, to pick one
+PAST_SEASON = "past_season"   # one finished season's hours, a page at a time
 # System
 UPDATE_CONFIRM = "update_confirm"
 WIFI_LIST = "wifi_list"
@@ -106,6 +108,7 @@ BACK = {
     ACTIVE_ID: PEOPLE_MENU, OFF_LIST: PEOPLE_MENU, NEW_NAME: NEW_TEAM, RENAME_NAME: RENAME_ID,
     USERPIN_NEW: USERPIN_ID, USERPIN_AGAIN: USERPIN_NEW,
     ADJUST_ID: HOURS_MENU, TOGGLE_ID: HOURS_MENU, SEASON_PIN: HOURS_MENU, HERE_LIST: HOURS_MENU,
+    PAST_LIST: HOURS_MENU, PAST_SEASON: PAST_LIST,
     ADJUST_AMOUNT: ADJUST_ID,
     UPDATE_CONFIRM: SYSTEM_MENU, WIFI_LIST: SYSTEM_MENU, ADMINPIN_NEW: SYSTEM_MENU,
     WIFI_PASSWORD: WIFI_LIST, ADMINPIN_AGAIN: ADMINPIN_NEW,
@@ -141,6 +144,7 @@ HOURS_MENU_LINES = [
     "3  Who is here",
     "4  Sign everyone out",
     "5  Start a new season",
+    "6  Past seasons",
     "*  Back",
 ]
 
@@ -398,6 +402,8 @@ class KioskController:
                 WIFI_LIST: self._wifi_list_key,
                 HERE_LIST: self._here_list_key,
                 OFF_LIST: self._here_list_key,   # same paging
+                PAST_SEASON: self._here_list_key,
+                PAST_LIST: self._past_list_key,
             }.get(self.state)
             if handler:
                 return handler(key)
@@ -703,6 +709,10 @@ class KioskController:
             if self.seasons is None:
                 return self._error_keep_state("Seasons can't be changed from this kiosk.")
             return self._go(SEASON_PIN, {"name": self.seasons.next_name()})
+        if key == "6":
+            if self.seasons is None:
+                return self._error_keep_state("Seasons can't be viewed from this kiosk.")
+            return self._go(PAST_LIST, {"list_page": 0})
         return None
 
     def _system_choice(self, key: str) -> Screen | None:
@@ -893,6 +903,17 @@ class KioskController:
             return None
         self.context["page"] += 1        # wraps round in _redraw
         return self._redraw()
+
+    def _past_list_key(self, key: str) -> Screen | None:
+        """Past seasons: 1-8 opens that season, # shows the next page of seasons."""
+        if key == "#":
+            self.context["list_page"] += 1   # wraps round in _redraw
+            return self._redraw()
+        shown = self.context.get("shown", [])
+        if key.isdigit() and 1 <= int(key) <= len(shown):
+            self.context.update(season=shown[int(key) - 1], page=0)
+            return self._go(PAST_SEASON)
+        return None
 
     # -- system: background jobs
 
@@ -1225,6 +1246,37 @@ class KioskController:
                        "#  next page      *  back"] if pages > 1
                       else ["", "Reactivate with People > 7.", "*  Back"])
             return Screen(f"Deactivated: {len(rows)}", (lines or ["Nobody"]) + footer, "info")
+        if state == PAST_LIST:
+            seasons = self.seasons.past()
+            pages = max(1, -(-len(seasons) // HERE_PAGE))
+            page = ctx["list_page"] % pages
+            ctx["list_page"] = page
+            ctx["shown"] = seasons[page * HERE_PAGE:(page + 1) * HERE_PAGE]
+            lines = [f"{n}  {_cut(x['name'], 20)}  {_season_dates(x)}"
+                     for n, x in enumerate(ctx["shown"], start=1)]
+            if not seasons:
+                lines = ["None yet. A season is saved here when",
+                         "a new one starts (Hours > 5)."]
+            footer = ([f"Page {page + 1} of {pages}", "#  more seasons      *  back"]
+                      if pages > 1 else ["", "*  Back"])
+            return Screen(f"Past seasons: {len(seasons)}", lines + footer,
+                          "prompt" if seasons else "info")
+        if state == PAST_SEASON:
+            season = ctx["season"]
+            rows = self.seasons.records(season["id"])
+            total = timefmt.format_duration(sum(e.total_seconds for e in rows))
+            pages = max(1, -(-len(rows) // HERE_PAGE))
+            page = ctx["page"] % pages
+            ctx["page"] = page
+            lines = [f"{e.rank:>2}. {e.code}  {_cut(e.username, 20)}  "
+                     f"{timefmt.format_duration(e.total_seconds)}"
+                     for e in rows[page * HERE_PAGE:(page + 1) * HERE_PAGE]]
+            footer = ([f"Page {page + 1} of {pages}  ·  {total} in all",
+                       "#  next page      *  back"] if pages > 1
+                      else ["", f"{total} in all", "*  Back"])
+            people = f"{len(rows)} {'person' if len(rows) == 1 else 'people'}"
+            return Screen(f"Season {season['name']}: {people}",
+                          (lines or ["Nobody has time in this season."]) + footer, "info")
         if state == UPDATE_CONFIRM:
             count = ctx["count"]
             lines = [f"•  {change[:44]}" for change in ctx["changes"][:4]]
@@ -1374,6 +1426,13 @@ def _add_name_char(buffer: str, char: str) -> str:
     if char == " " and (not buffer or buffer.endswith(" ")):  # no leading or double spaces
         return buffer
     return buffer + char
+
+
+def _season_dates(season: dict) -> str:
+    """When a season ran, e.g. "Sep 2025 - Jun 2026"."""
+    start = f"{season['started_at']:%b %Y}"
+    end = f"{season['ended_at']:%b %Y}" if season.get("ended_at") else "?"
+    return start if end == start else f"{start} - {end}"
 
 
 def _rank_text(stats: UserStats) -> str:

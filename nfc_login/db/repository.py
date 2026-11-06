@@ -236,8 +236,8 @@ def close_session(cur, session_id: int, now: datetime, method: str, credited_sec
     )
 
 
-def season_totals(cur, season_id: int) -> list[dict]:
-    """Season time per active user: session time plus admin adjustments."""
+def season_totals(cur, season_id: int, include_inactive: bool = False) -> list[dict]:
+    """Season time per active user (or everyone): session time plus admin adjustments."""
     # COALESCE(..., 0) turns "no rows" (NULL) into 0 for people with no time yet.
     cur.execute(
         "SELECT u.id AS user_id, u.username, u.section, u.number, "
@@ -245,7 +245,7 @@ def season_totals(cur, season_id: int) -> list[dict]:
         "            WHERE s.user_id = u.id AND s.season_id = %s), 0) AS session_seconds, "
         "  COALESCE((SELECT SUM(a.seconds) FROM adjustments a "
         "            WHERE a.user_id = u.id AND a.season_id = %s), 0) AS adjustment_seconds "
-        "FROM users u WHERE u.is_active = 1",
+        "FROM users u" + ("" if include_inactive else " WHERE u.is_active = 1"),
         (season_id, season_id),
     )
     rows = [with_code(r) for r in cur.fetchall()]

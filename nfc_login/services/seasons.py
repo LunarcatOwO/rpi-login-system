@@ -65,6 +65,17 @@ class SeasonService:
         with self.db.transaction() as cur:
             return repo.list_seasons(cur)
 
+    def past(self) -> list[dict]:
+        """Finished seasons, newest first."""
+        return [s for s in reversed(self.list()) if not s["is_active"]]
+
+    def records(self, season_id: int) -> list[lb.LeaderboardEntry]:
+        """A season's ranking of everyone who has time in it."""
+        # Deactivated people are kept: they may have left since, but their hours still count.
+        with self.db.transaction() as cur:
+            entries = lb.leaderboard(cur, season_id, include_inactive=True)
+        return [e for e in entries if e.total_seconds > 0]
+
     def ensure_active(self) -> dict:
         """Create a season named after the current year if none is active."""
         with self.db.transaction() as cur:
