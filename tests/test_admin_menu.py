@@ -518,3 +518,28 @@ def test_minimize_keeps_the_kiosk_running(services):
     assert screen.minimize_app and not screen.close_app and controller.state == kc.IDLE
     users.enroll_tag("04AA", users.add("Taylor", "D")["id"])
     assert controller.handle_card("04AA").title == "Welcome, Taylor!"   # still counting
+
+
+def test_past_seasons(services, clock):
+    controller, users, _jobs, _published, _system = make(services)
+    screen = press(controller, "*2468#26")
+    assert screen.title == "Past seasons: 0" and screen.lines[0].startswith("None yet")
+    press(controller, "*")
+    taylor = users.add("Taylor", "B")
+    users.enroll_tag("04AA", taylor["id"])
+    users.add("Robin", "A")                                   # no time: left off the list
+    controller.seasons.ensure_active()
+    first = controller.attendance.active_season_name()
+    controller.handle_card("04AA")
+    clock.advance(hours=2)
+    controller.handle_card("04AA")
+    clock.advance(days=300)
+    controller.seasons.start_new("2027")
+    users.set_active(taylor["code"], False)                     # left the team since: still listed
+    screen = press(controller, "*2468#26")
+    assert screen.title == "Past seasons: 1" and screen.lines[0].startswith(f"1  {first}  Sep 2026")
+    screen = press(controller, "1")
+    assert screen.title == f"Season {first}: 1 person"
+    assert screen.lines[0] == " 1. B001  Taylor  2h 00m" and screen.lines[-2] == "2h 00m in all"
+    assert press(controller, "*").title == "Past seasons: 1"
+    assert press(controller, "*").title == "Hours and sign-ins"
