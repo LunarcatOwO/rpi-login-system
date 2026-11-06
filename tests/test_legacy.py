@@ -18,7 +18,8 @@ import pytest
 from nfc_login.legacy.importer import LegacyImporter, read_legacy
 from nfc_login.legacy.rfid import legacy_key_for_uid, uid_for_legacy_key
 
-# Schema copied from the legacy readme.
+# Schema copied from the legacy readme; records uses the spelling of a real
+# dump (recordID, userID, starttime), which differs in case from the readme.
 LEGACY_SCHEMA = [
     """CREATE TABLE users (`userId` INT UNSIGNED NOT NULL AUTO_INCREMENT,
         `name` VARCHAR(32) NOT NULL, `hours` DECIMAL(10,2) UNSIGNED NOT NULL,
@@ -29,10 +30,10 @@ LEGACY_SCHEMA = [
     """CREATE TABLE pastseasons (`userId` INT UNSIGNED NOT NULL,
         `hours` DECIMAL(10,2) UNSIGNED NOT NULL, `name` VARCHAR(32) NOT NULL,
         `seasonStartDate` DATE NOT NULL) ENGINE = InnoDB""",
-    """CREATE TABLE records (`recordId` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-        `userId` INT UNSIGNED NOT NULL, `startTime` DATETIME NOT NULL,
+    """CREATE TABLE records (`recordID` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        `userID` INT UNSIGNED NOT NULL, `starttime` DATETIME NOT NULL,
         `endTime` DATETIME NOT NULL, `notes` VARCHAR(64),
-        PRIMARY KEY (`recordId`)) ENGINE = InnoDB""",
+        PRIMARY KEY (`recordID`)) ENGINE = InnoDB""",
 ]
 
 ANA_KEY = 0xDEADBEEF22          # 4-byte card DEADBEEF, as SimpleMFRC522 reports it
