@@ -361,7 +361,7 @@ def build_parser() -> argparse.ArgumentParser:
     user = sub.add_parser("user", help="manage users").add_subparsers(dest="action", required=True)
     c = user.add_parser("add", help="create a user (gets the next free ID in the team)")
     c.add_argument("username")
-    c.add_argument("--section", required=True, help="team letter: A Robot, B Impact, C Sustainability, D Strategy, M Mentors")
+    c.add_argument("--section", required=True, help="team letter: A Robot, B Impact, C Sustainability, D Game Performance, M Mentors")
     c.add_argument("--pin", action="store_true", help="also set a keypad PIN")
     c.set_defaults(func=cmd_user_add)
     c = user.add_parser("list", help="list users")

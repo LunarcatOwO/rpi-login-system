@@ -51,9 +51,9 @@ def test_live_status_lists_who_is_here(web, clock):
     status = json.load(urllib.request.urlopen(base + "/api/status"))
     assert [(p["code"], p["team"]) for p in status["here"]] == [("A001", "Robot")]
     assert [s["name"] for s in status["sections"]] == [
-        "Robot", "Impact", "Sustainability", "Strategy", "Mentors"]
+        "Robot", "Impact", "Sustainability", "Game Performance", "Mentors"]
     assert {(r["code"], r["team"]) for r in status["leaderboard"]} == {
-        ("A001", "Robot"), ("D001", "Strategy")}
+        ("A001", "Robot"), ("D001", "Game Performance")}
     page = urllib.request.urlopen(base + "/").read().decode()
     assert "Who's here" in page and "{{REFRESH_MS}}" not in page
 

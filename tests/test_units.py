@@ -78,7 +78,7 @@ def test_four_sections_one_per_letter_key():
     assert [(s["letter"], s["key"]) for s in config.sections] == [
         ("A", "A"), ("B", "B"), ("C", "C"), ("D", "D"), ("M", "")]
     assert [s["name"] for s in config.sections] == [
-        "Robot", "Impact", "Sustainability", "Strategy", "Mentors"]
+        "Robot", "Impact", "Sustainability", "Game Performance", "Mentors"]
 
 
 def test_sections_must_not_share_keys(tmp_path):

@@ -97,7 +97,7 @@ DEFAULTS: dict = {
         {"letter": "A", "name": "Robot", "short": "Robot", "key": "A"},
         {"letter": "B", "name": "Impact", "short": "Impact", "key": "B"},
         {"letter": "C", "name": "Sustainability", "short": "Sustain", "key": "C"},
-        {"letter": "D", "name": "Strategy", "short": "Strategy", "key": "D"},
+        {"letter": "D", "name": "Game Performance", "short": "Game", "key": "D"},
         {"letter": "M", "name": "Mentors", "short": "Mentor", "key": ""},
     ],
     # When the Pi is online, check GitHub for a newer version every few hours
@@ -199,6 +199,10 @@ def _check_sections(sections: list[dict]) -> None:
 
     for section in sections:
         section["letter"] = section["letter"].upper()
+        # Team D was renamed: a Pi whose config.toml still has the old name
+        # picks up the new one without anyone editing the file.
+        if section["letter"] == "D" and section.get("name") == "Strategy":
+            section["name"], section["short"] = "Game Performance", "Game"
         section["key"] = section.get("key", "").upper()
         section.setdefault("short", section["name"][:8])
         letter, key = section["letter"], section["key"]
