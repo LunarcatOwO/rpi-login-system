@@ -85,7 +85,7 @@ def test_import_users_cards_hours_and_seasons(services, db, legacy, clock):
     summary = LegacyImporter(db, ["B", "C"], clock=clock).run(legacy)
     assert summary.users == 3 and summary.cards == 2 and summary.cards_need_scan == 1
     assert summary.signed_in == 1 and summary.records == 2
-    assert summary.seasons == ["Legacy 2024-01-08", "Legacy 2025-01-06"]
+    assert summary.seasons == ["Legacy 2022-2023", "Legacy 2023-2024"]
     assert [c for _id, c, _n in summary.created] == ["B001", "B002", "B003"]
 
     ana = users.get_by_code("B001")
@@ -106,10 +106,10 @@ def test_import_users_cards_hours_and_seasons(services, db, legacy, clock):
     # ... and an RC522 reading the same card still finds him.
     assert attendance.user_for_tag("8804A1B2")["id"] == ben["id"]
 
-    _season, board = seasons.leaderboard("Legacy 2024-01-08")
+    _season, board = seasons.leaderboard("Legacy 2022-2023")
     assert [(e.username, e.total_seconds) for e in board if e.total_seconds] == \
         [("Ana", 40 * 3600), ("Ben", 10 * 3600 + 1800)]
-    _season, board = seasons.leaderboard("Legacy 2025-01-06")
+    _season, board = seasons.leaderboard("Legacy 2023-2024")
     assert board[0].username == "Ana" and board[0].total_seconds == 55 * 3600
     assert seasons.active()["name"] == "2026"
 
@@ -128,6 +128,33 @@ def test_import_is_safe_to_rerun_and_dry_run_saves_nothing(services, db, legacy,
     again = LegacyImporter(db, ["A"], clock=clock).run(legacy)
     assert again.users == 0 and again.skipped_users == 3 and again.records == 0
     assert len(users.list()) == 3
+
+
+def test_new_season_files_all_old_hours_under_legacy_seasons(services, db, legacy, clock):
+    attendance, seasons, users = services
+    clock.now = datetime(2026, 11, 6, 17, 0)
+    summary = LegacyImporter(db, ["A"], clock=clock, new_season="2026-2027").run(legacy)
+    # Each old reset date closes a season; the current hours close the last one,
+    # named by the last sign-in (October 2026 in this made-up data).
+    assert summary.seasons == ["Legacy 2022-2023", "Legacy 2023-2024", "Legacy 2026-2027"]
+    assert summary.hours_season == "Legacy 2026-2027"
+    assert [(x["name"], x["is_active"]) for x in seasons.list()] == [
+        ("Legacy 2022-2023", 0), ("Legacy 2023-2024", 0), ("Legacy 2026-2027", 0),
+        ("2026-2027", 1)]  # init-db's empty "2026" season is replaced
+    old = {x["name"]: x for x in seasons.list()}
+    assert old["Legacy 2023-2024"]["started_at"] == datetime(2024, 1, 8)
+    assert old["Legacy 2023-2024"]["ended_at"] == datetime(2025, 1, 6)
+
+    _season, board = seasons.leaderboard("Legacy 2026-2027")
+    assert [(e.username, e.total_seconds) for e in board if e.total_seconds] == \
+        [("Ana", int(12.5 * 3600)), ("Ben", int(3.25 * 3600))]
+    ana = users.get_by_code("A001")
+    assert attendance.user_stats(ana["id"]).total_seconds == 0       # fresh season
+    assert attendance.user_stats(users.get_by_code("A002")["id"]).signed_in
+
+    clock.now = datetime(2026, 11, 7, 9, 0)    # run again the next day
+    again = LegacyImporter(db, ["A"], clock=clock, new_season="2026-2027").run(legacy)
+    assert again.users == 0 and again.seasons == [] and len(seasons.list()) == 4
 
 
 def test_name_clash_and_card_clash(services, db, legacy, clock):
