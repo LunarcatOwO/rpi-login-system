@@ -317,13 +317,19 @@ def cmd_import_legacy(s, args, config):
     data = read_legacy(settings)
     print(f"Legacy database: {len(data['users'])} users, {len(data['pastseasons'])} "
           f"past-season rows, {len(data['records'])} records.")
-    summary = LegacyImporter(s.db, sections).run(data, dry_run=args.dry_run)
+    new_season = None
+    if args.new_season is not None:  # --new-season alone: this school year, e.g. 2026-2027
+        from nfc_login.legacy.importer import school_year
+        new_season = args.new_season or school_year(timefmt.now().date())
+    summary = LegacyImporter(s.db, sections, new_season=new_season).run(
+        data, dry_run=args.dry_run)
 
     print("DRY RUN, nothing saved:" if args.dry_run else "Imported:")
     print(f"  users:        {summary.users} new, {summary.skipped_users} already imported")
     print(f"  cards:        {summary.cards} ({summary.cards_need_scan} match on first scan)")
-    print(f"  hours:        {timefmt.format_duration(summary.hours_seconds)} into the "
-          "current season")
+    print(f"  hours:        {timefmt.format_duration(summary.hours_seconds)} into "
+          f"{summary.hours_season}")
+    print(f"  now active:   {summary.active_season}")
     print(f"  signed in:    {summary.signed_in} (still signed in from the old system)")
     print(f"  past seasons: {', '.join(summary.seasons) or 'none'} "
           f"({summary.past_rows} totals)")
@@ -445,6 +451,9 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--sections", help="put people straight into these sections, in order, "
                                       "e.g. A or A,B (default: everyone gets a U ID and "
                                       "gets a team from an admin on their first card scan)")
+    c.add_argument("--new-season", nargs="?", const="", metavar="NAME",
+                   help="file all old hours under finished Legacy seasons and start this "
+                        "season empty (no NAME: this school year, e.g. 2026-2027)")
     c.add_argument("--dry-run", action="store_true", help="show what would happen, save nothing")
     c.set_defaults(func=cmd_import_legacy)
 

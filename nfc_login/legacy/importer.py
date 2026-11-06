@@ -14,7 +14,9 @@
 #   users.name, userId     -> a user with a U ID (U007) until they pick a team on
 #                             their first scan, or a team given with --sections
 #   users.rfidKey          -> a card (see rfid.py)
-#   users.hours            -> an hours adjustment in the active season
+#   users.hours            -> an hours adjustment in the active season, or with
+#                             new_season set, in a finished "Legacy 2025-2026"
+#                             season while a fresh, empty season starts
 #   lastLogin / lastLogout -> one zero-credit session so "last sign in/out" carry over
 #   pastseasons            -> one archived season per start date, hours as adjustments
 #   records                -> copied to legacy_records for reference only (their time
@@ -24,7 +26,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Callable
 
@@ -49,6 +51,8 @@ class ImportSummary:
     cards_need_scan: int = 0
     hours_seconds: int = 0
     seasons: list[str] = field(default_factory=list)
+    hours_season: str = ""      # where users.hours went
+    active_season: str = ""
     past_rows: int = 0
     records: int = 0
     signed_in: int = 0
@@ -106,6 +110,12 @@ def _valid_time(value) -> datetime | None:
     return None
 
 
+def school_year(day: date) -> str:
+    """School season a date falls in: Aug-Dec 2026 and Jan-Jul 2027 are both 2026-2027."""
+    start = day.year if day.month >= 8 else day.year - 1
+    return f"{start}-{start + 1}"
+
+
 def _seconds(hours) -> int:
     """Legacy DECIMAL hours (e.g. 12.50) -> whole seconds; Decimal avoids float rounding."""
     return int(round(Decimal(str(hours or 0)) * 3600))
@@ -115,8 +125,11 @@ class LegacyImporter:
     """Copies the legacy data in one transaction: all of it goes in, or none."""
 
     def __init__(self, db: Database, sections: list[str] | None = None,
-                 clock: Callable[[], datetime] = timefmt.now):
+                 clock: Callable[[], datetime] = timefmt.now, new_season: str | None = None):
         self.db = db
+        # Set: the old hours all go into a finished legacy season and this
+        # season (e.g. "2026-2027") starts empty. None: they count in the active season.
+        self.new_season = new_season
         # Empty: everyone waits in the U holding section until their first scan.
         self.sections = [s.upper() for s in sections or []]
         self.clock = clock
@@ -136,19 +149,41 @@ class LegacyImporter:
 
     def _import(self, cur, data, summary: ImportSummary) -> None:
         now = self.clock()
-        season = repo.get_active_season(cur)
-        if not season:  # fresh database: start a season named after this year
-            name = str(now.year)
-            repo.create_season(cur, name, now)
-            season = repo.get_active_season(cur)
+        # Seasons first, oldest to newest, so they list in the old system's order.
+        resets = sorted({d for d in (_valid_time(r.get("seasonStartDate"))
+                                     for r in data["pastseasons"]) if d})
+        past = self._past_seasons(cur, resets, data, summary)
+        if self.new_season:
+            # The old system's current hours become a finished season too.
+            # Named by when people last signed in, since it ends today.
+            last_seen = [t for u in data["users"] for k in ("lastLogin", "lastLogout")
+                         if (t := _valid_time(u.get(k)))]
+            started = resets[-1] if resets else now
+            season = self._finished_season(cur, started, now, summary,
+                                           max(last_seen, default=now))
+            active = self._start_new_season(cur, now)
+        else:
+            active = repo.get_active_season(cur)
+            if not active:  # fresh database: start a season named after this year
+                repo.create_season(cur, str(now.year), now)
+                active = repo.get_active_season(cur)
+            season = active
+        summary.hours_season, summary.active_season = season["name"], active["name"]
 
         new_ids: dict[int, int] = {}       # legacy userId -> our user id
         for legacy in data["users"]:
-            user_id = self._import_user(cur, legacy, season, now, summary)
+            user_id = self._import_user(cur, legacy, season, active, now, summary)
             if user_id is not None:
                 new_ids[int(legacy["userId"])] = user_id
 
-        self._import_past_seasons(cur, data["pastseasons"], new_ids, season, now, summary)
+        for row in data["pastseasons"]:
+            reset = _valid_time(row.get("seasonStartDate"))
+            user_id = new_ids.get(int(row["userId"]))
+            seconds = _seconds(row["hours"])
+            if reset in past and user_id and seconds:
+                repo.add_adjustment(cur, user_id, past[reset]["id"], seconds,
+                                    IMPORT_REASON, now, "import")
+                summary.past_rows += 1
 
         for record in data["records"]:
             user_id = new_ids.get(int(record["userId"]))
@@ -164,7 +199,7 @@ class LegacyImporter:
             )
             summary.records += cur.rowcount
 
-    def _import_user(self, cur, legacy: dict, season: dict, now: datetime,
+    def _import_user(self, cur, legacy: dict, season: dict, active: dict, now: datetime,
                      summary: ImportSummary) -> int | None:
         """Create one legacy user here with a fresh ID; None if already imported."""
         legacy_id = int(legacy["userId"])
@@ -205,7 +240,7 @@ class LegacyImporter:
         last_in = _valid_time(legacy.get("lastLogin"))
         last_out = _valid_time(legacy.get("lastLogout"))
         if last_in and legacy.get("loggedIn"):  # here right now: stays signed in
-            repo.open_session(cur, user_id, season["id"], last_in, "import")
+            repo.open_session(cur, user_id, active["id"], last_in, "import")
             summary.signed_in += 1
         elif last_in and last_out and last_out >= last_in:
             # Zero credit: their hours came in above; this only carries over the dates.
@@ -213,33 +248,68 @@ class LegacyImporter:
             repo.close_session(cur, session_id, last_out, "import", 0)
         return user_id
 
-    def _import_past_seasons(self, cur, rows, new_ids, active, now, summary) -> None:
-        """One finished season per legacy start date, each person's hours as an adjustment."""
-        dates = sorted({r["seasonStartDate"] for r in rows if r.get("seasonStartDate")})
-        for i, start in enumerate(dates):
-            season_rows = [r for r in rows if r["seasonStartDate"] == start
-                           and int(r["userId"]) in new_ids]
-            if not season_rows:
-                continue
-            name = f"Legacy {start:%Y-%m-%d}" if isinstance(start, date) else f"Legacy {start}"
+    # ------------------------------------------------------------ legacy seasons
+    # The old system's "new season" copied everyone's hours into pastseasons,
+    # labelled with the date typed in: the day the NEXT season started. So each
+    # label is the END of the season its rows belong to (checked against a real
+    # dump: the 2026-01-01 rows match the visit log from 2024-11 to 2025-06).
+
+    def _past_seasons(self, cur, resets, data, summary) -> dict:
+        """One finished season per old reset date, oldest first: {reset date: season}."""
+        used = {_valid_time(r.get("seasonStartDate")) for r in data["pastseasons"]}
+        first_record = min((t for t in (_valid_time(r["startTime"]) for r in data["records"])
+                            if t), default=None)
+        seasons = {}
+        for i, ended in enumerate(resets):
+            # Begins at the reset before it; the oldest one's start was never saved.
+            started = resets[i - 1] if i else min(first_record or ended, ended)
+            if ended in used:
+                seasons[ended] = self._finished_season(cur, started, ended, summary)
+        return seasons
+
+    def _finished_season(self, cur, started: datetime, ended: datetime, summary,
+                         active_on: datetime | None = None) -> dict:
+        """Find or make a finished season named after its school year (Legacy 2024-2025)."""
+        # Old resets were done late (November, January), so by default name it
+        # by the school year half a year before it ended.
+        name = "Legacy " + school_year((active_on or ended - timedelta(days=183)).date())
+        existing = repo.get_season_by_name(cur, name)
+        # Made by an earlier run (the current-hours season ended "now" back then).
+        if existing and (existing["ended_at"] == ended or active_on is not None):
+            return existing
+        if existing:  # two old resets in one school year
+            name = f"{name} (to {ended:%Y-%m-%d})"
             existing = repo.get_season_by_name(cur, name)
             if existing:
-                season_id = existing["id"]
-            else:
-                started = _valid_time(start) or now
-                # A season ends when the next one starts (the last, when ours began).
-                ended = _valid_time(dates[i + 1]) if i + 1 < len(dates) else active["started_at"]
-                cur.execute(
-                    "INSERT INTO seasons (name, started_at, ended_at, is_active) "
+                return existing
+        cur.execute("INSERT INTO seasons (name, started_at, ended_at, is_active) "
                     "VALUES (%s, %s, %s, 0)", (name, started, ended))
-                season_id = cur.lastrowid
-                summary.seasons.append(name)
-            for row in season_rows:
-                seconds = _seconds(row["hours"])
-                if seconds:
-                    repo.add_adjustment(cur, new_ids[int(row["userId"])], season_id, seconds,
-                                        IMPORT_REASON, now, "import")
-                    summary.past_rows += 1
+        summary.seasons.append(name)
+        return repo.get_season_by_name(cur, name)
+
+    # ------------------------------------------------------------ new season
+
+    def _start_new_season(self, cur, now: datetime) -> dict:
+        """Make self.new_season the active season, empty, starting now."""
+        active = repo.get_active_season(cur)
+        if active and active["name"] == self.new_season:
+            return active  # an earlier run already set it up
+        if repo.get_season_by_name(cur, self.new_season):
+            raise ValueError(f"A finished season is already called {self.new_season!r}.")
+        if active and self._season_is_empty(cur, active["id"]):
+            # The empty placeholder init-db made (named after the year): drop it.
+            cur.execute("DELETE FROM seasons WHERE id = %s", (active["id"],))
+        elif active:
+            repo.end_season(cur, active["id"], now)
+        repo.create_season(cur, self.new_season, now)
+        return repo.get_active_season(cur)
+
+    @staticmethod
+    def _season_is_empty(cur, season_id: int) -> bool:
+        cur.execute("SELECT (SELECT COUNT(*) FROM sessions WHERE season_id = %s) + "
+                    "(SELECT COUNT(*) FROM adjustments WHERE season_id = %s) AS n",
+                    (season_id, season_id))
+        return cur.fetchone()["n"] == 0
 
     # ------------------------------------------------------------ helpers
 
