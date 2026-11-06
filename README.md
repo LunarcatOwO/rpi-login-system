@@ -49,9 +49,10 @@ clock. You can also update by hand: `cd ~/rpi-login-system && git pull`, then re
 | # | Enter |
 | * | Backspace / back. From the start screen it opens the admin menu (asks for the PIN). |
 
-The admin menu has three parts: **1 People** (add, enroll cards, teams, PINs),
-**2 Hours** (add/subtract, sign in/out, who's here, new season) and **3 System**
-(info, updates, Wi-Fi, restart/shut down). Only admins can enroll cards.
+The admin menu has three parts: **1 People** (add, enroll cards, teams, PINs,
+deactivate, list deactivated), **2 Hours** (add/subtract, sign in/out, who's here,
+new season) and **3 System** (info, updates, Wi-Fi, restart/shut down, minimize).
+Only admins can enroll cards.
 
 Anyone on the network can open the live "who's here" page at
 `http://<pi-address>:8080/`, and the admin page is at `/admin`.

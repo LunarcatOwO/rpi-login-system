@@ -60,6 +60,7 @@ ADMIN_MENU = "admin_menu"
 PEOPLE_MENU = "people_menu"
 HOURS_MENU = "hours_menu"
 HERE_LIST = "here_list"       # admin: who is here, a page at a time
+OFF_LIST = "off_list"         # admin: who is deactivated, a page at a time
 SYSTEM_MENU = "system_menu"
 MENUS = (ADMIN_MENU, PEOPLE_MENU, HOURS_MENU, SYSTEM_MENU)
 
@@ -102,7 +103,7 @@ BACK = {
     PEOPLE_MENU: ADMIN_MENU, HOURS_MENU: ADMIN_MENU, SYSTEM_MENU: ADMIN_MENU,
     NEW_TEAM: PEOPLE_MENU, ENROLL_ID: PEOPLE_MENU, UNCARD_ID: PEOPLE_MENU,
     MOVE_ID: PEOPLE_MENU, RENAME_ID: PEOPLE_MENU, USERPIN_ID: PEOPLE_MENU,
-    ACTIVE_ID: PEOPLE_MENU, NEW_NAME: NEW_TEAM, RENAME_NAME: RENAME_ID,
+    ACTIVE_ID: PEOPLE_MENU, OFF_LIST: PEOPLE_MENU, NEW_NAME: NEW_TEAM, RENAME_NAME: RENAME_ID,
     USERPIN_NEW: USERPIN_ID, USERPIN_AGAIN: USERPIN_NEW,
     ADJUST_ID: HOURS_MENU, TOGGLE_ID: HOURS_MENU, SEASON_PIN: HOURS_MENU, HERE_LIST: HOURS_MENU,
     ADJUST_AMOUNT: ADJUST_ID,
@@ -131,6 +132,7 @@ PEOPLE_MENU_LINES = [
     "5  Rename someone",
     "6  Set someone's PIN",
     "7  Deactivate / reactivate",
+    "8  List deactivated people",
     "*  Back",
 ]
 HOURS_MENU_LINES = [
@@ -162,6 +164,7 @@ class Screen:
     # on-screen keys: "name" / "text" (letters, for names / passwords)
     keyboard: str | None = None
     close_app: bool = False             # the window should close itself
+    minimize_app: bool = False          # the window should minimize (kiosk keeps running)
     restart_app: bool = False           # the app should restart itself (e.g. after an update)
     busy: bool = False                  # waiting on a background job: show a spinner
 
@@ -392,6 +395,7 @@ class KioskController:
                 UPDATE_CONFIRM: self._update_confirm_key,
                 WIFI_LIST: self._wifi_list_key,
                 HERE_LIST: self._here_list_key,
+                OFF_LIST: self._here_list_key,   # same paging
             }.get(self.state)
             if handler:
                 return handler(key)
@@ -678,6 +682,8 @@ class KioskController:
         """People menu: each number starts that task."""
         state = {"1": NEW_TEAM, "2": ENROLL_ID, "3": UNCARD_ID, "4": MOVE_ID,
                  "5": RENAME_ID, "6": USERPIN_ID, "7": ACTIVE_ID}.get(key)
+        if key == "8":
+            return self._go(OFF_LIST, {"page": 0})
         return self._go(state, {}) if state else None
 
     def _hours_choice(self, key: str) -> Screen | None:
@@ -711,6 +717,14 @@ class KioskController:
             return self._wifi_scan()
         if key == "4":
             return self._go(ADMINPIN_NEW, {})
+        if key == "9":
+            # Nothing stops: cards and the keypad still sign people in meanwhile.
+            self._reset()
+            return Screen("Minimizing the kiosk", [
+                "Card scans still count while it's hidden.",
+                "Bring it back from the taskbar, or open NFC Kiosk",
+                "from the desktop menu."], "info", hold_seconds=self.result_seconds,
+                minimize_app=True)
         action = {"5": "restart_app", "6": "close_app", "7": "reboot", "8": "poweroff"}.get(key)
         if action:
             if action in ("reboot", "poweroff") and self.system is None:
@@ -872,7 +886,7 @@ class KioskController:
         return screen
 
     def _here_list_key(self, key: str) -> Screen | None:
-        """# on the admin "who is here" list: next page."""
+        """# on the "who is here" / "deactivated" lists: next page."""
         if key != "#":
             return None
         self.context["page"] += 1        # wraps round in _redraw
@@ -1122,7 +1136,8 @@ class KioskController:
             lines = [
                 "1  System info", update, "3  Wi-Fi", "4  Change the admin PIN",
                 "5  Restart the kiosk app", "6  Close the kiosk app",
-                "7  Restart the Pi", "8  Shut down the Pi", "*  Back",
+                "7  Restart the Pi", "8  Shut down the Pi", "9  Minimize the kiosk app",
+                "*  Back",
             ]
             if self._setup_needed():
                 lines.insert(0, SETUP_REMINDER)
@@ -1197,6 +1212,17 @@ class KioskController:
             footer = ([f"Page {page + 1} of {pages}", "#  next page      *  back"] if pages > 1
                       else ["", "*  Back"])
             return Screen(f"Here now: {len(rows)}", (lines or ["Nobody"]) + footer, "info")
+        if state == OFF_LIST:
+            rows = [u for u in self.users.list(include_inactive=True) if not u["is_active"]]
+            pages = max(1, -(-len(rows) // HERE_PAGE))
+            page = ctx["page"] % pages
+            ctx["page"] = page
+            lines = [f"{u['code']}  {_cut(u['username'], 30)}"
+                     for u in rows[page * HERE_PAGE:(page + 1) * HERE_PAGE]]
+            footer = ([f"Page {page + 1} of {pages}  ·  reactivate with People > 7",
+                       "#  next page      *  back"] if pages > 1
+                      else ["", "Reactivate with People > 7.", "*  Back"])
+            return Screen(f"Deactivated: {len(rows)}", (lines or ["Nobody"]) + footer, "info")
         if state == UPDATE_CONFIRM:
             count = ctx["count"]
             lines = [f"•  {change[:44]}" for change in ctx["changes"][:4]]

@@ -119,6 +119,7 @@ class KioskWindow:
 
         root.title("NFC Sign In")
         root.configure(bg=COLORS["bg"])
+        self.ui_fullscreen = ui_config["fullscreen"]
         if ui_config["fullscreen"]:
             root.attributes("-fullscreen", True)
             root.config(cursor="none")  # hide the mouse pointer on the touchscreen
@@ -371,6 +372,8 @@ class KioskWindow:
             self.root.after(2500, self.root.destroy)  # time to read the screen first
         if getattr(screen, "restart_app", False):
             self.root.after(2500, self._restart)
+        if getattr(screen, "minimize_app", False):
+            self.root.after(2500, self._minimize)
         # A new screen cancels the old screen's timer back to idle.
         if self._revert_job:
             self.root.after_cancel(self._revert_job)
@@ -436,6 +439,19 @@ class KioskWindow:
     def _restart(self) -> None:
         self.restart_requested = True
         self.root.destroy()
+
+    def _minimize(self) -> None:
+        """System > 9: hide the window; the kiosk keeps counting card scans."""
+        fullscreen = self.ui_fullscreen
+        if fullscreen:
+            self.root.attributes("-fullscreen", False)  # most desktops won't iconify fullscreen
+        self.root.iconify()
+        if fullscreen:
+            # Back to fullscreen once it's shown again (taskbar click).
+            def restore(_event=None):
+                self.root.attributes("-fullscreen", True)
+                self.root.unbind("<Map>")
+            self.root.bind("<Map>", restore)
 
     def _revert(self) -> None:
         self._revert_job = None
