@@ -496,7 +496,7 @@ async function loadSide() {
     setText($("season"), "Season " + side.season);
     const keys = side.keys.map(k => k.key).join("/");
     setText($("hint"), `No card? Type your ID: ${keys} + number` +
-      (side.mentors ? ", mentors numbers only" : "") + "    * admin");
+      (side.mentors ? ", mentors and captains numbers only" : "") + "    * admin");
     $("sim").classList.toggle("on", side.simulated);
     $("update").classList.toggle("on", side.update);
     renderSide();

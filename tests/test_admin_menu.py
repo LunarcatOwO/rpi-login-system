@@ -476,7 +476,7 @@ def test_keypad_lines_and_keyboards(services):
     idle = controller.idle_screen()
     assert "A  Robot      B  Impact" in idle.lines and "*  Admin menu" in idle.lines
     assert "#  Type your ID" in idle.lines
-    assert idle.lines[1].endswith("Mentors: numbers only.")
+    assert idle.lines[1].endswith("Mentors and captains: numbers only.")
     screen = press(controller, "#")                           # # on the start screen: type an ID
     assert controller.state == kc.USER_ID and screen.keyboard is None   # on the keypad
     assert press(controller, "*").title == "Tap your card"

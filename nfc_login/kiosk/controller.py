@@ -263,7 +263,7 @@ class KioskController:
         rows = ["      ".join(teams[i:i + 2]) for i in range(0, len(teams), 2)]  # two per line
         hint = "No card? Type your ID: team letter, then number."
         if self.mentors:
-            hint += " Mentors: numbers only."
+            hint += " Mentors and captains: numbers only."
         lines = ["Hold your card on the reader to sign in or out.", hint, *rows,
                  "#  Type your ID", "Keypad: # enter, * backspace", "*  Admin menu"]
         if self._installing():
@@ -1112,9 +1112,9 @@ class KioskController:
         if not section:
             return self._redraw()
         if self.context.get("legacy") and section == ids.MENTORS:
-            # People choose their own team, but only an admin can make a mentor.
+            # People choose their own team, but only an admin can make a mentor or captain.
             if not self.users.admin_pin_set():
-                return self._error_keep_state("Mentors need an admin, and no admin PIN is set.")
+                return self._error_keep_state("Mentors and captains need an admin, and no admin PIN is set.")
             self.state = ADMIN_PIN
             self.context["section"] = section
             return self._redraw()
@@ -1177,7 +1177,7 @@ class KioskController:
             user = ctx["user"]
             legacy = ctx.get("legacy")
             choices = [f"{key}  {self.users.team_name(letter)}"
-                       + ("  (needs an admin)" if legacy and letter == ids.MENTORS else "")
+                       + (" / Captains  (needs an admin)" if legacy and letter == ids.MENTORS else "")
                        for key, letter in self.team_choices.items()]
             if legacy:
                 return Screen(f"Welcome, {user['username']}!", [
@@ -1192,7 +1192,7 @@ class KioskController:
             ], "prompt")
         if state == ADMIN_PIN and ctx.get("legacy"):
             user = ctx["user"]
-            return Screen(f"{user['username']} as a mentor", [
+            return Screen(f"{user['username']} as a mentor or captain", [
                 "An admin needs to confirm this.",
                 "",
                 "Admin: type the PIN, then #",
@@ -1315,7 +1315,7 @@ class KioskController:
             shown = self.buffer + "_" * (length - len(self.buffer))
             hint = "Team letter, then the number."
             if self.mentors:
-                hint += " Mentors: numbers only."
+                hint += " Mentors and captains: numbers only."
             return Screen(title, [hint, "# = enter early,  * = back"], "prompt", entry=shown)
         if state in PIN_STATES:
             return self._pin_screen()
