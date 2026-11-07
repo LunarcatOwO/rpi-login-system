@@ -182,7 +182,7 @@ def test_people_pick_their_own_team_on_an_old_cards_first_scan(services, db, leg
     assert controller.state == kc.PICK_TEAM and screen.title == "Welcome, Ana!"
     assert screen.lines[0] == "Please choose your team before signing in."
     assert "3  Sustainability" in screen.lines
-    assert "5  Mentors  (needs an admin)" in screen.lines
+    assert "5  Mentors / Captains  (needs an admin)" in screen.lines
     assert screen.buzz == "attention"
     assert controller.handle_key("9").title == "Welcome, Ana!"   # not a choice: ask again
     screen = controller.handle_key("3")
@@ -200,7 +200,7 @@ def test_people_pick_their_own_team_on_an_old_cards_first_scan(services, db, leg
     # Mentors need the admin PIN; * goes back to the team list.
     controller.handle_card("04A1B2C3D4E5F6")
     screen = controller.handle_key("5")
-    assert controller.state == kc.ADMIN_PIN and screen.title == "Ben as a mentor"
+    assert controller.state == kc.ADMIN_PIN and screen.title == "Ben as a mentor or captain"
     assert controller.handle_key("*").title == "Welcome, Ben!"
     assert controller.state == kc.PICK_TEAM
     controller.handle_key("5")

@@ -476,7 +476,7 @@ def test_touch_and_keypad_lines(services):
     idle = controller.idle_screen()
     assert "A  Robot      B  Impact" in idle.lines and "*  Admin menu" in idle.lines
     assert "#  Type your ID on the screen" in idle.lines
-    assert idle.lines[1].endswith("Mentors: numbers only.")
+    assert idle.lines[1].endswith("Mentors and captains: numbers only.")
     screen = press(controller, "#")                           # # on the start screen: type an ID
     assert controller.state == kc.USER_ID and screen.keyboard == "keypad"
     assert press(controller, "*").title == "Tap your card"
