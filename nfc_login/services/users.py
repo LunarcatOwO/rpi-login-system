@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import copy
+import math
 from datetime import datetime
 from typing import Callable
 
@@ -28,6 +29,9 @@ from nfc_login.services import ids, timefmt
 from nfc_login.services.pins import hash_pin, verify_pin
 
 ADMIN_PIN_SETTING = "admin_pin_hash"  # its row in the settings table
+ADMIN_FAILS_SETTING = "admin_pin_fails"  # "count|time of the last wrong try", for the CLI
+ADMIN_MAX_FAILS = 3        # wrong admin PINs in a row on the command line...
+ADMIN_LOCK_MINUTES = 15    # ...lock changing it for this long
 
 
 class UserError(Exception):
@@ -193,3 +197,30 @@ class UserService:
         """True if this is the admin PIN."""
         with self.db.transaction() as cur:
             return verify_pin(pin, repo.get_setting(cur, ADMIN_PIN_SETTING))
+
+    def check_admin_pin_limited(self, pin: str) -> bool:
+        """check_admin_pin, but wrong tries are counted in the database, so
+        re-running the command line tool doesn't give a guesser fresh tries."""
+        now = self.clock()
+        with self.db.transaction() as cur:
+            fails, last = self._admin_fails(cur)
+            if fails >= ADMIN_MAX_FAILS and last is not None:
+                wait = ADMIN_LOCK_MINUTES * 60 - (now - last).total_seconds()
+                if wait > 0:
+                    raise UserError(f"Too many wrong admin PINs. Try again in "
+                                    f"{math.ceil(wait / 60)} minute(s).")
+                fails = 0  # lock is over: a fresh set of tries
+            if verify_pin(pin, repo.get_setting(cur, ADMIN_PIN_SETTING)):
+                repo.set_setting(cur, ADMIN_FAILS_SETTING, "0|")
+                return True
+            repo.set_setting(cur, ADMIN_FAILS_SETTING, f"{fails + 1}|{now.isoformat()}")
+            return False
+
+    @staticmethod
+    def _admin_fails(cur) -> tuple[int, datetime | None]:
+        raw = repo.get_setting(cur, ADMIN_FAILS_SETTING) or "0|"
+        count, _, when = raw.partition("|")
+        try:
+            return int(count), (datetime.fromisoformat(when) if when else None)
+        except ValueError:  # hand-edited row: start counting again
+            return 0, None
