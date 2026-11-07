@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import os
 import sys
 
 import pymysql
@@ -77,8 +78,26 @@ def cmd_init_db(s, args, config):
 
 
 def cmd_set_admin_pin(s, args, config):
+    # First time (no PIN yet) is open, so setup can just ask for one. After that,
+    # changing it needs the current PIN, or --forgot run as root (sudo).
+    if s.users.admin_pin_set():
+        if args.forgot:
+            _confirm_forgot_reset()
+        elif not s.users.check_admin_pin_limited(getpass.getpass("Current admin PIN: ")):
+            raise UserError("Wrong admin PIN. Forgot it? See: set-admin-pin --help")
     s.users.set_admin_pin(_ask_pin("New admin PIN (4-8 digits): "))
     print("Admin PIN saved.")
+
+
+def _confirm_forgot_reset() -> None:
+    """Forgotten admin PIN: only root may reset it, and only after typing RESET."""
+    if os.geteuid() != 0:
+        raise UserError("Resetting a forgotten admin PIN needs sudo:\n"
+                        "  sudo .venv/bin/python -m nfc_login.admin set-admin-pin --forgot")
+    print("This replaces the admin PIN without knowing the old one.")
+    print("Anyone signed in to the admin web page is logged out.")
+    if input("Type RESET to continue: ").strip() != "RESET":
+        raise UserError("Not reset.")
 
 
 def cmd_user_add(s, args, config):
@@ -361,8 +380,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help="also CREATE DATABASE (needs a privileged DB user)")
     c.set_defaults(func=cmd_init_db)
 
-    sub.add_parser("set-admin-pin", help="set the PIN for the kiosk admin menu"
-                   ).set_defaults(func=cmd_set_admin_pin)
+    c = sub.add_parser("set-admin-pin", help="set the PIN for the kiosk admin menu",
+                       description="Set the admin PIN. The first time it just asks for one. "
+                       "To change it you need the current PIN (3 wrong tries lock it for 15 "
+                       "minutes). Forgot it? Run it with sudo and --forgot.")
+    c.add_argument("--forgot", action="store_true",
+                   help="reset a forgotten PIN (run with sudo, asks you to type RESET)")
+    c.set_defaults(func=cmd_set_admin_pin)
 
     user = sub.add_parser("user", help="manage users").add_subparsers(dest="action", required=True)
     c = user.add_parser("add", help="create a user (gets the next free ID in the team)")

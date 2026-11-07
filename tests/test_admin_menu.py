@@ -289,7 +289,8 @@ def test_system_info(services):
 
 def test_change_the_admin_pin(services):
     controller, users, _jobs, _published, _system = make(services)
-    press(controller, "*2468#34")
+    assert press(controller, "*2468#34").title == "Change admin PIN"
+    assert press(controller, "2468#").title == "New admin PIN"  # current PIN first
     assert press(controller, "12#").lines[0] == "A PIN needs 4 to 8 digits."
     assert press(controller, "1357#").title == "Type the PIN again"
     screen = press(controller, "1358#")
@@ -297,6 +298,14 @@ def test_change_the_admin_pin(services):
     assert controller.state == kc.ADMINPIN_NEW
     assert press(controller, "1357#1357#").title == "Admin PIN changed"
     assert users.check_admin_pin("1357") and not users.check_admin_pin("2468")
+
+
+def test_changing_the_admin_pin_needs_the_current_one(services):
+    controller, users, _jobs, _published, _system = make(services)
+    press(controller, "*2468#34")
+    assert press(controller, "1111#").title == "Wrong PIN"  # and out of the admin menu
+    assert controller.state != kc.ADMINPIN_NEW
+    assert users.check_admin_pin("2468")
 
 
 def test_sign_someone_in_and_everyone_out(services, clock):

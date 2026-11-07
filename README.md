@@ -57,6 +57,14 @@ deactivate, list deactivated), **2 Hours** (add/subtract, sign in/out, who's her
 new season, past seasons) and **3 System** (info, updates, Wi-Fi, restart/shut down, minimize).
 Only admins can enroll cards.
 
+### Admin PIN
+
+The first PIN is set during setup with no questions asked. After that, changing
+it (System → 4 on the kiosk, or `.venv/bin/python -m nfc_login.admin set-admin-pin`)
+asks for the current PIN first. On the command line, 3 wrong tries lock changing
+it for 15 minutes. Forgot it? On the Pi run
+`sudo .venv/bin/python -m nfc_login.admin set-admin-pin --forgot` and type `RESET`.
+
 Anyone on the network can open the live "who's here" page at
 `http://<pi-address>:8080/`, and the admin page is at `/admin`.
 For the command-line admin tool, run `.venv/bin/python -m nfc_login.admin --help`.

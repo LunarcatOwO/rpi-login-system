@@ -89,6 +89,7 @@ PAST_SEASON = "past_season"   # one finished season's hours, a page at a time
 UPDATE_CONFIRM = "update_confirm"
 WIFI_LIST = "wifi_list"
 WIFI_PASSWORD = "wifi_password"
+ADMINPIN_OLD = "adminpin_old"  # current admin PIN before changing it
 ADMINPIN_NEW = "adminpin_new"
 ADMINPIN_AGAIN = "adminpin_again"
 CONFIRM = "confirm"           # "#  do it   *  back" for the action in context["action"]
@@ -96,7 +97,7 @@ CONFIRM = "confirm"           # "#  do it   *  back" for the action in context["
 ID_STATES = (USER_ID, ENROLL_ID, ADJUST_ID, MOVE_ID, UNCARD_ID, RENAME_ID, USERPIN_ID,
              ACTIVE_ID, TOGGLE_ID)
 PIN_STATES = (USER_PIN, ADMIN_PIN, USERPIN_NEW, USERPIN_AGAIN, ADMINPIN_NEW, ADMINPIN_AGAIN,
-              SEASON_PIN)
+              SEASON_PIN, ADMINPIN_OLD)
 NAME_STATES = (NEW_NAME, RENAME_NAME)
 TEXT_STATES = (*NAME_STATES, WIFI_PASSWORD)
 
@@ -111,6 +112,7 @@ BACK = {
     PAST_LIST: HOURS_MENU, PAST_SEASON: PAST_LIST,
     ADJUST_AMOUNT: ADJUST_ID,
     UPDATE_CONFIRM: SYSTEM_MENU, WIFI_LIST: SYSTEM_MENU, ADMINPIN_NEW: SYSTEM_MENU,
+    ADMINPIN_OLD: SYSTEM_MENU,
     WIFI_PASSWORD: WIFI_LIST, ADMINPIN_AGAIN: ADMINPIN_NEW,
 }
 
@@ -606,6 +608,10 @@ class KioskController:
             return self._user_sign(pin)
         if self.state == SEASON_PIN:
             return self._start_season(pin)
+        if self.state == ADMINPIN_OLD:  # someone at an open menu can't just change it
+            if not self.users.check_admin_pin(pin):
+                return self._wrong_pin()
+            return self._go(ADMINPIN_NEW, {})
         # Setting a PIN: type it twice, so a typo can't lock anyone out.
         if self.state in (USERPIN_NEW, ADMINPIN_NEW):
             if len(pin) < 4:
@@ -728,7 +734,7 @@ class KioskController:
         if key == "3":
             return self._wifi_scan()
         if key == "4":
-            return self._go(ADMINPIN_NEW, {})
+            return self._go(ADMINPIN_OLD, {})
         if key == "9":
             # Nothing stops: cards and the keypad still sign people in meanwhile.
             self._reset()
@@ -1346,6 +1352,9 @@ class KioskController:
             if user["pin_hash"]:
                 lines.append("D  Remove their PIN")
             return Screen(f"PIN for {user['username']} ({user['code']})", lines + ["*  back"],
+                          "prompt", entry=dots)
+        if state == ADMINPIN_OLD:
+            return Screen("Change admin PIN", ["Type the current admin PIN, then #", "*  back"],
                           "prompt", entry=dots)
         if state == ADMINPIN_NEW:
             return Screen("New admin PIN", ["Type the new PIN (4-8 digits), then #", "*  back"],
