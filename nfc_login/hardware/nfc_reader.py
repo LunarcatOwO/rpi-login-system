@@ -43,6 +43,13 @@ CLASSIC_CAPACITY = len(CLASSIC_SECTORS) * 3 * CLASSIC_BLOCK_SIZE  # 720 bytes
 TRIES = 4                          # attempts per block, or passes over missing blocks
 BUDGET_SECONDS = 4.0               # give up on one card after this long
 RESELECT_TIMEOUT = 0.15            # seconds to wait for the card to answer again
+CONNECT_TRIES = 3                  # a PN532 that misses its first wake-up often answers the next
+CONNECT_PAUSE = 0.5                # seconds between those tries
+
+# Shown when the PN532 never answers, so the boot screen says what to check.
+SPI_HINT = ("PN532 didn't answer over SPI. Check: wires on pins 19, 21, 23, 29 and "
+            "3.3 V/GND; DIP switches SW1 OFF, SW2 ON; SPI turned on "
+            "(ls /dev/spidev0.0); then power the Pi off and on.")
 
 
 class TagWriteError(Exception):
@@ -105,7 +112,10 @@ def open_pn532(nfc: dict):
         spi = busio.SPI(board.SCK, board.MOSI, board.MISO)
         # Chip select on its own GPIO (5 by default), not the Pi's CE0 pin.
         cs = digitalio.DigitalInOut(getattr(board, f"D{nfc.get('spi_cs_pin', 5)}"))
-        pn532 = FastPN532SPI(spi, cs, nfc.get("spi_baudrate", 1_000_000))
+        # Creating it wakes the PN532 and asks its firmware version; try a few
+        # times before giving up, and say what to check if it never answers.
+        pn532 = connect(lambda: FastPN532SPI(spi, cs, nfc.get("spi_baudrate", 1_000_000)),
+                        SPI_HINT)
     elif interface == "i2c":
         from adafruit_pn532.i2c import PN532_I2C
         pn532 = PN532_I2C(busio.I2C(board.SCL, board.SDA), debug=False)
@@ -118,6 +128,19 @@ def open_pn532(nfc: dict):
         raise ValueError(f"hardware.nfc.interface must be spi, i2c or uart, not {interface!r}")
     pn532.SAM_configuration()  # put the PN532 in normal card-reading mode
     return pn532
+
+
+def connect(make, hint: str, tries: int = CONNECT_TRIES, pause: float = CONNECT_PAUSE,
+            sleep=time.sleep):
+    """``make()`` the PN532 driver, retrying; RuntimeError with ``hint`` if it never answers."""
+    for attempt in range(tries):
+        try:
+            return make()
+        except (RuntimeError, OSError) as exc:  # "Failed to detect", no ACK, bus error
+            last = exc
+            if attempt + 1 < tries:
+                sleep(pause)
+    raise RuntimeError(f"{hint} (last error: {last})") from last
 
 
 class PN532Reader:

@@ -15,6 +15,7 @@ from __future__ import annotations
 import pytest
 
 from nfc_login.hardware.nfc_reader import (
+    connect,
     CLASSIC_CAPACITY,
     CLASSIC_KEY,
     PN532Reader,
@@ -253,3 +254,26 @@ def test_firmware_is_asked_once_so_system_info_never_touches_the_bus():
     assert reader.firmware_version() == "PN532 firmware 1.6"
     assert reader.firmware_version() == "PN532 firmware 1.6"
     assert Counting.asked == 1
+
+
+# ------------------------------------------------------------ connecting
+
+def test_connect_retries_a_reader_that_misses_its_first_wakeup():
+    calls = []
+
+    def make():
+        calls.append(1)
+        if len(calls) < 3:
+            raise RuntimeError("Failed to detect the PN532")
+        return "pn532"
+
+    assert connect(make, "hint", sleep=lambda s: None) == "pn532"
+    assert len(calls) == 3
+
+
+def test_connect_gives_up_with_the_hint():
+    def make():
+        raise RuntimeError("Did not receive expected ACK from PN532!")
+
+    with pytest.raises(RuntimeError, match="check the wires.*expected ACK"):
+        connect(make, "check the wires", sleep=lambda s: None)
