@@ -101,8 +101,7 @@ def _confirm_forgot_reset() -> None:
 
 
 def cmd_user_add(s, args, config):
-    pin = _ask_pin() if args.pin else None
-    user = s.users.add(args.username, args.section, pin)
+    user = s.users.add(args.username, args.section)
     print(f"Created user {user['username']!r} with ID {user['code']}.")
     print(f"Enroll a card at the kiosk (* → admin PIN → 1), or `tag enroll {user['code']}`")
 
@@ -110,10 +109,10 @@ def cmd_user_add(s, args, config):
 def cmd_user_list(s, args, config):
     names = s.users.section_names
     rows = [[u["code"], u["username"], names.get(u["section"], u["section"]),
-             "yes" if u["pin_hash"] else "no", "active" if u["is_active"] else "inactive"]
+             "active" if u["is_active"] else "inactive"]
             for u in s.users.list(include_inactive=args.all or args.deactivated)
             if not (args.deactivated and u["is_active"])]
-    _table(rows, ["ID", "Username", "Section", "PIN", "Status"])
+    _table(rows, ["ID", "Username", "Section", "Status"])
 
 
 def cmd_user_show(s, args, config):
@@ -137,11 +136,6 @@ def cmd_user_rename(s, args, config):
 def cmd_user_move(s, args, config):
     user = s.users.move(s.users.get_by_code(args.code)["id"], args.section)
     print(f"{user['username']} is now {user['code']}.")
-
-
-def cmd_user_set_pin(s, args, config):
-    s.users.set_pin(args.code, None if args.clear else _ask_pin())
-    print("PIN cleared." if args.clear else "PIN saved.")
 
 
 def cmd_user_deactivate(s, args, config):
@@ -392,7 +386,6 @@ def build_parser() -> argparse.ArgumentParser:
     c = user.add_parser("add", help="create a user (gets the next free ID in the team)")
     c.add_argument("username")
     c.add_argument("--section", required=True, help="team letter: A Robot, B Impact, C Sustainability, D Game Performance, M Mentors")
-    c.add_argument("--pin", action="store_true", help="also set a keypad PIN")
     c.set_defaults(func=cmd_user_add)
     c = user.add_parser("list", help="list users")
     c.add_argument("--all", action="store_true", help="include deactivated users")
@@ -412,10 +405,6 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("code", help="user ID, e.g. U03")
     c.add_argument("section", help="team letter, e.g. B (M for mentors)")
     c.set_defaults(func=cmd_user_move)
-    c = user.add_parser("set-pin", help="set or clear a user's keypad PIN")
-    c.add_argument("code", help="user ID, e.g. A007 (or 007 for a mentor)")
-    c.add_argument("--clear", action="store_true")
-    c.set_defaults(func=cmd_user_set_pin)
 
     tag = sub.add_parser("tag", help="manage NFC cards").add_subparsers(dest="action",
                                                                          required=True)
