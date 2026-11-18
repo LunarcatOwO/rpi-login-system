@@ -14,7 +14,7 @@
 # Tkinter or the web page, so all of this can be tested without hardware.
 #
 # Keypad:  A-D  start a team member's ID (B 0 0 7 = B007)
-#          0-9  digits; from idle, a mentor's ID (007). After an ID, 1 = sign in by PIN
+#          0-9  digits; from idle, a mentor's ID (007). After an ID, # = sign in/out
 #          *    backspace / back; from idle, the admin menu (asks for the PIN)
 #          #    enter
 # Admin menu: 1 People, 2 Hours, 3 System (see the *_MENU_LINES below).
@@ -38,7 +38,6 @@ from nfc_login.services.attendance import (
     AttendanceError,
     AttendanceService,
     UserStats,
-    WrongPinError,
 )
 from nfc_login.services.seasons import SeasonError
 from nfc_login.services.system import SystemActionError, WifiOffError
@@ -51,8 +50,7 @@ log = logging.getLogger(__name__)
 # The states (which screen is up). self.state holds one of these.
 IDLE = "idle"
 USER_ID = "user_id"           # typing an ID from the idle screen
-USER_MENU = "user_menu"       # a user's stats, offering PIN sign-in
-USER_PIN = "user_pin"
+USER_MENU = "user_menu"       # confirm screen after typing an ID: # signs in/out
 ADMIN_PIN = "admin_pin"
 BUSY = "busy"                 # a background job (Wi-Fi, update, power) is running
 
@@ -74,9 +72,6 @@ MOVE_ID = "move_id"           # whose team to change
 PICK_TEAM = "pick_team"       # a team is chosen (legacy card's owner, or admin via MOVE_ID)
 RENAME_ID = "rename_id"
 RENAME_NAME = "rename_name"
-USERPIN_ID = "userpin_id"
-USERPIN_NEW = "userpin_new"
-USERPIN_AGAIN = "userpin_again"
 ACTIVE_ID = "active_id"       # whom to deactivate / reactivate
 # Hours
 ADJUST_ID = "adjust_id"
@@ -94,10 +89,9 @@ ADMINPIN_NEW = "adminpin_new"
 ADMINPIN_AGAIN = "adminpin_again"
 CONFIRM = "confirm"           # "#  do it   *  back" for the action in context["action"]
 
-ID_STATES = (USER_ID, ENROLL_ID, ADJUST_ID, MOVE_ID, UNCARD_ID, RENAME_ID, USERPIN_ID,
-             ACTIVE_ID, TOGGLE_ID)
-PIN_STATES = (USER_PIN, ADMIN_PIN, USERPIN_NEW, USERPIN_AGAIN, ADMINPIN_NEW, ADMINPIN_AGAIN,
-              SEASON_PIN, ADMINPIN_OLD)
+ID_STATES = (USER_ID, ENROLL_ID, ADJUST_ID, MOVE_ID, UNCARD_ID, RENAME_ID, ACTIVE_ID,
+             TOGGLE_ID)
+PIN_STATES = (ADMIN_PIN, ADMINPIN_NEW, ADMINPIN_AGAIN, SEASON_PIN, ADMINPIN_OLD)
 NAME_STATES = (NEW_NAME, RENAME_NAME)
 TEXT_STATES = (*NAME_STATES, WIFI_PASSWORD)
 
@@ -105,9 +99,8 @@ TEXT_STATES = (*NAME_STATES, WIFI_PASSWORD)
 BACK = {
     PEOPLE_MENU: ADMIN_MENU, HOURS_MENU: ADMIN_MENU, SYSTEM_MENU: ADMIN_MENU,
     NEW_TEAM: PEOPLE_MENU, ENROLL_ID: PEOPLE_MENU, UNCARD_ID: PEOPLE_MENU,
-    MOVE_ID: PEOPLE_MENU, RENAME_ID: PEOPLE_MENU, USERPIN_ID: PEOPLE_MENU,
+    MOVE_ID: PEOPLE_MENU, RENAME_ID: PEOPLE_MENU,
     ACTIVE_ID: PEOPLE_MENU, OFF_LIST: PEOPLE_MENU, NEW_NAME: NEW_TEAM, RENAME_NAME: RENAME_ID,
-    USERPIN_NEW: USERPIN_ID, USERPIN_AGAIN: USERPIN_NEW,
     ADJUST_ID: HOURS_MENU, TOGGLE_ID: HOURS_MENU, SEASON_PIN: HOURS_MENU, HERE_LIST: HOURS_MENU,
     PAST_LIST: HOURS_MENU, PAST_SEASON: PAST_LIST,
     ADJUST_AMOUNT: ADJUST_ID,
@@ -135,9 +128,8 @@ PEOPLE_MENU_LINES = [
     "3  Remove someone's cards",
     "4  Change someone's team",
     "5  Rename someone",
-    "6  Set someone's PIN",
-    "7  Deactivate / reactivate",
-    "8  List deactivated people",
+    "6  Deactivate / reactivate",
+    "7  List deactivated people",
     "*  Back",
 ]
 HOURS_MENU_LINES = [
@@ -477,9 +469,6 @@ class KioskController:
             return self._go(PEOPLE_MENU, {})
         if self.state == CONFIRM:
             return self._go(self.context.get("back", ADMIN_MENU), {})
-        if self.state == USER_PIN:
-            self.state = USER_MENU
-            return self._user_menu_screen()
         back = BACK.get(self.state)
         if back:
             # Keep what's needed a step back (e.g. the Wi-Fi list); menus start clean.
@@ -546,48 +535,48 @@ class KioskController:
             self.context["cut"] = len(user["username"]) > MAX_NAME
             return self._redraw()
         # The rest just move on to their next step.
-        nxt = {ENROLL_ID: ENROLL_SCAN, MOVE_ID: PICK_TEAM, USERPIN_ID: USERPIN_NEW,
+        nxt = {ENROLL_ID: ENROLL_SCAN, MOVE_ID: PICK_TEAM,
                ADJUST_ID: ADJUST_AMOUNT}[self.state]
         return self._go(nxt)
 
     # -- a user's own menu
 
     def _user_menu_screen(self) -> Screen:
-        """Someone looked themselves up: their stats, and 1 to sign in by PIN."""
+        """Someone typed their ID: show who they are and ask before signing in/out."""
         user = self.context["user"]
         try:
             stats = self.attendance.user_stats(user["id"])
         except AttendanceError as exc:
             self._reset()
             return self._result("Not found", [str(exc)], "error")
-        return Screen(f"{stats.username}  ({stats.code})", [
-            f"Team: {self.users.team_name(stats.section)}",
+        verb = "out" if stats.signed_in else "in"
+        return Screen(f"Sign {verb} {stats.username}?", [
+            f"ID {stats.code}  ·  {self.users.team_name(stats.section)}",
             f"Season {stats.season_name}: {stats.total_text}",
-            f"Leaderboard rank: {_rank_text(stats)}",
             f"Currently: {'signed in' if stats.signed_in else 'signed out'}",
-            f"Last sign in: {timefmt.format_timestamp(stats.last_sign_in)}",
-            f"Last sign out: {timefmt.format_timestamp(stats.last_sign_out)}",
             "",
-            f"1  Sign {'out' if stats.signed_in else 'in'} with your PIN      *  Done",
-        ], "info")
+            "Not you? Press * and type your ID again.",
+            "",
+            f"#  Sign {verb}      *  Cancel",
+        ], "prompt")
 
     def _user_menu_key(self, key: str) -> Screen | None:
-        """1 on a person's own screen: ask for their PIN."""
-        if key == "1":
-            if not self.context["user"]["pin_hash"]:
-                return self._error_keep_state("No PIN set for you. Use your card.",
-                                              self._user_menu_screen())
-            self.state = USER_PIN
-            return self._redraw()
-        return None
+        """# on the confirm screen signs them in or out (no PIN, the ID is enough)."""
+        if key != "#":
+            return None
+        user = self.context["user"]
+        self._reset()
+        try:
+            result = self.attendance.toggle(user["id"], method="keypad")
+        except AttendanceError as exc:
+            return self._result("Not signed in", [str(exc)], "error")
+        return self._scan_screen(result.action, result.stats, result.session_seconds,
+                                 result.notes)
 
     # -- PINs
 
     def _pin_key(self, key: str) -> Screen:
         """A key pressed on any PIN screen: digits are typed, # submits."""
-        # D (or # with nothing typed) on "new PIN" removes the PIN, after asking.
-        if key == "D" and self.state == USERPIN_NEW and self.context["user"]["pin_hash"]:
-            return self._confirm("remove_pin", PEOPLE_MENU, user=self.context["user"])
         if key.isdigit():
             if len(self.buffer) < MAX_PIN:
                 self.buffer += key
@@ -596,14 +585,10 @@ class KioskController:
             return self._redraw()
         # # pressed: what the PIN is for depends on the screen.
         pin, self.buffer = self.buffer, ""
-        if self.state == USERPIN_NEW and not pin and self.context["user"]["pin_hash"]:
-            return self._confirm("remove_pin", PEOPLE_MENU, user=self.context["user"])
         if not pin:
             return self._redraw()
         if self.state == ADMIN_PIN:
             return self._check_admin(pin)
-        if self.state == USER_PIN:
-            return self._user_sign(pin)
         if self.state == SEASON_PIN:
             return self._start_season(pin)
         if self.state == ADMINPIN_OLD:  # someone at an open menu can't just change it
@@ -611,37 +596,19 @@ class KioskController:
                 return self._wrong_pin()
             return self._go(ADMINPIN_NEW, {})
         # Setting a PIN: type it twice, so a typo can't lock anyone out.
-        if self.state in (USERPIN_NEW, ADMINPIN_NEW):
+        if self.state == ADMINPIN_NEW:
             if len(pin) < 4:
                 return self._error_keep_state("A PIN needs 4 to 8 digits.")
             self.context["pin"] = pin
-            return self._go(USERPIN_AGAIN if self.state == USERPIN_NEW else ADMINPIN_AGAIN)
-        # USERPIN_AGAIN / ADMINPIN_AGAIN: must match the first one
+            return self._go(ADMINPIN_AGAIN)
+        # ADMINPIN_AGAIN: must match the first one
         first = self.context.pop("pin", None)
         if pin != first:
-            self.state = USERPIN_NEW if self.state == USERPIN_AGAIN else ADMINPIN_NEW
+            self.state = ADMINPIN_NEW
             return self._error_keep_state("The two PINs didn't match. Try again.")
-        if self.state == USERPIN_AGAIN:
-            return self._set_user_pin(pin)
         self.users.set_admin_pin(pin)
         self._reset()
         return self._result("Admin PIN changed", ["Use the new PIN from now on."], "success")
-
-    def _set_user_pin(self, pin: str | None) -> Screen:
-        """Save (or with None, remove) the chosen user's PIN."""
-        user = self.context["user"]
-        self._reset()
-        try:
-            self.users.set_pin(user["code"], pin)
-        except (UserError, ValueError) as exc:
-            return self._result("PIN not changed", [str(exc)], "error")
-        if pin is None:
-            return self._result("PIN removed", [
-                f"{user['username']} ({user['code']}) now signs in with a card only."], "success")
-        return self._result("PIN set", [
-            f"{user['username']} can sign in on the keypad now:",
-            f"type {user['code']}, then 1, then the PIN.",
-        ], "success")
 
     def _check_admin(self, pin: str) -> Screen:
         """Admin PIN typed: open the admin menu (or finish a legacy mentor pick)."""
@@ -653,25 +620,6 @@ class KioskController:
             screen.sound = "admin"
             return screen
         return self._wrong_pin()
-
-    def _user_sign(self, pin: str) -> Screen:
-        """Sign someone in or out by ID + PIN instead of a card."""
-        user = self.context["user"]
-        try:
-            self.attendance.check_keypad_login(user["id"], pin)
-        except WrongPinError:
-            return self._wrong_pin()
-        except AttendanceError as exc:
-            self._reset()
-            return self._result("Not signed in", [str(exc)], "error")
-        self._pin_failures = 0
-        self._reset()
-        try:
-            result = self.attendance.toggle(user["id"], method="keypad")
-        except AttendanceError as exc:
-            return self._result("Not signed in", [str(exc)], "error")
-        return self._scan_screen(result.action, result.stats, result.session_seconds,
-                                 result.notes)
 
     def _wrong_pin(self) -> Screen:
         """Count a wrong PIN; too many in a row lock the keypad for a minute."""
@@ -693,8 +641,8 @@ class KioskController:
     def _people_choice(self, key: str) -> Screen | None:
         """People menu: each number starts that task."""
         state = {"1": NEW_TEAM, "2": ENROLL_ID, "3": UNCARD_ID, "4": MOVE_ID,
-                 "5": RENAME_ID, "6": USERPIN_ID, "7": ACTIVE_ID}.get(key)
-        if key == "8":
+                 "5": RENAME_ID, "6": ACTIVE_ID}.get(key)
+        if key == "7":
             return self._go(OFF_LIST, {"page": 0})
         return self._go(state, {}) if state else None
 
@@ -795,9 +743,6 @@ class KioskController:
             ], "success")
         if action == "toggle_active":
             return self._toggle_active(ctx["user"])
-        if action == "remove_pin":
-            self.context = {"user": ctx["user"]}
-            return self._set_user_pin(None)
         if action == "close_app":
             self._reset()
             return Screen("Closing the kiosk", [self.reopen_hint], "warning", close_app=True)
@@ -820,7 +765,7 @@ class KioskController:
                 self.users.set_active(user["code"], False)
                 return self._result(f"{user['username']} deactivated", [
                     "Their cards and ID no longer work.",
-                    "Turn them back on with People > 7.",
+                    "Turn them back on with People > 6.",
                 ], "success", refresh=True)
             self.users.set_active(user["code"], True)
         except (UserError, AttendanceError) as exc:
@@ -1246,9 +1191,9 @@ class KioskController:
             ctx["page"] = page
             lines = [f"{u['code']}  {_cut(u['username'], 30)}"
                      for u in rows[page * HERE_PAGE:(page + 1) * HERE_PAGE]]
-            footer = ([f"Page {page + 1} of {pages}  ·  reactivate with People > 7",
+            footer = ([f"Page {page + 1} of {pages}  ·  reactivate with People > 6",
                        "#  next page      *  back"] if pages > 1
-                      else ["", "Reactivate with People > 7.", "*  Back"])
+                      else ["", "Reactivate with People > 6.", "*  Back"])
             return Screen(f"Deactivated: {len(rows)}", (lines or ["Nobody"]) + footer, "info")
         if state == PAST_LIST:
             seasons = self.seasons.past()
@@ -1307,7 +1252,6 @@ class KioskController:
             title = {USER_ID: "Your user ID", ENROLL_ID: "Enroll a card: user ID",
                      ADJUST_ID: "Adjust hours: user ID", MOVE_ID: "Change team: user ID",
                      UNCARD_ID: "Remove cards: user ID", RENAME_ID: "Rename: user ID",
-                     USERPIN_ID: "Set a PIN: user ID",
                      ACTIVE_ID: "Deactivate / reactivate: user ID",
                      TOGGLE_ID: "Sign in or out: user ID"}[state]
             # Show the typed part plus a _ for each character still to come: A0__
@@ -1337,20 +1281,13 @@ class KioskController:
         """Every PIN screen; the PIN shows as dots."""
         state, ctx = self.state, self.context
         dots = "•" * len(self.buffer)
-        if state == USERPIN_NEW:
-            user = ctx["user"]
-            lines = ["Type a new PIN (4-8 digits), then #"]
-            if user["pin_hash"]:
-                lines.append("D  Remove their PIN")
-            return Screen(f"PIN for {user['username']} ({user['code']})", lines + ["*  back"],
-                          "prompt", entry=dots)
         if state == ADMINPIN_OLD:
             return Screen("Change admin PIN", ["Type the current admin PIN, then #", "*  back"],
                           "prompt", entry=dots)
         if state == ADMINPIN_NEW:
             return Screen("New admin PIN", ["Type the new PIN (4-8 digits), then #", "*  back"],
                           "prompt", entry=dots)
-        if state in (USERPIN_AGAIN, ADMINPIN_AGAIN):
+        if state == ADMINPIN_AGAIN:
             return Screen("Type the PIN again", ["Then press #", "*  back"], "prompt",
                           entry=dots)
         if state == SEASON_PIN:
@@ -1363,8 +1300,7 @@ class KioskController:
                 "Type the admin PIN again, then #, to start it.",
                 "*  back",
             ], "warning", entry=dots)
-        title = "Admin PIN" if state == ADMIN_PIN else "Your PIN"
-        return Screen(title, ["Then press #", "*  back"], "prompt", entry=dots)
+        return Screen("Admin PIN", ["Then press #", "*  back"], "prompt", entry=dots)
 
     def _confirm_screen(self) -> Screen:
         """The "are you sure?" screen for each action."""
@@ -1392,11 +1328,6 @@ class KioskController:
             return Screen(f"Reactivate {user['username']}?", [
                 f"{user['code']} and their cards work again.",
                 "", "#  reactivate      *  back"], "prompt")
-        if action == "remove_pin":
-            user = ctx["user"]
-            return Screen(f"Remove {user['username']}'s PIN?", [
-                f"{user['code']} can then sign in with a card only.",
-                "", "#  remove      *  back"], "warning")
         title, lines = {
             "restart_app": ("Restart the kiosk app?", ["It's back in a few seconds."]),
             "close_app": ("Close the kiosk app?", [

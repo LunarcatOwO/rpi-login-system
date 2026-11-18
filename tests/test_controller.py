@@ -92,10 +92,10 @@ def test_enrolling_needs_admin_pin(services):
 def test_section_d_and_enter_key(services):
     controller, _reader, users = make(services)
     users.add("dee", "D")
-    assert press(controller, "D001").title == "dee  (D001)"
+    assert press(controller, "D001").title == "Sign in dee?"
     # # is Enter mid-ID, so "D1#" is D001 too.
     press(controller, "*")
-    assert press(controller, "D1#").title == "dee  (D001)"
+    assert press(controller, "D1#").title == "Sign in dee?"
 
 
 def test_wrong_admin_pin_locks_after_five_tries(services):
@@ -107,22 +107,26 @@ def test_wrong_admin_pin_locks_after_five_tries(services):
     assert press(controller, "*").title == "Keypad locked"
 
 
-def test_keypad_sign_in_with_pin(services, clock):
+def test_keypad_sign_in_by_id_with_confirm(services, clock):
     controller, _reader, users = make(services)
-    users.add("taylor", "A", pin="1357")
-    press(controller, "A001")
-    assert controller.state == kc.USER_MENU
-    assert press(controller, "11357#").title == "Welcome, taylor!"
+    users.add("taylor", "A")                                # no PIN needed
+    screen = press(controller, "A001")
+    assert controller.state == kc.USER_MENU and screen.title == "Sign in taylor?"
+    assert "#  Sign in      *  Cancel" in screen.lines
+    assert controller.handle_key("1") is None                # other keys do nothing
+    assert press(controller, "#").title == "Welcome, taylor!"
     clock.advance(minutes=45)
-    assert press(controller, "A00111357#").title == "Goodbye, taylor!"
-    assert press(controller, "A00110000#").title == "Wrong PIN"
+    assert press(controller, "A001").title == "Sign out taylor?"
+    assert press(controller, "#").title == "Goodbye, taylor!"
 
 
-def test_user_without_pin_is_told_to_use_card(services):
+def test_cancel_on_confirm_signs_no_one_in(services):
     controller, _reader, users = make(services)
-    users.add("taylor", "A")
-    screen = press(controller, "A0011")
-    assert screen.tone == "error" and "Use your card" in screen.lines[0]
+    user = users.add("taylor", "A")
+    press(controller, "A001")
+    press(controller, "*")
+    assert controller.state != kc.USER_MENU
+    assert not controller.attendance.user_stats(user["id"]).signed_in
 
 
 def test_unknown_id_keeps_typing(services):
@@ -194,13 +198,13 @@ def test_buzzer_patterns_for_kiosk_events(services, clock):
 
 def test_mentors_type_only_a_number(services, clock):
     controller, reader, users = make(services)
-    mentor = users.add("morgan", "M", pin="1357")
+    mentor = users.add("morgan", "M")
     assert mentor["code"] == "001"
-    assert press(controller, "001").title == "morgan  (001)"   # a digit starts a mentor ID
-    assert "Team: Mentors" in controller._user_menu_screen().lines
-    assert press(controller, "11357#").title == "Welcome, morgan!"
+    assert press(controller, "001").title == "Sign in morgan?"  # a digit starts a mentor ID
+    assert "ID 001  ·  Mentors" in controller._user_menu_screen().lines
+    assert press(controller, "#").title == "Welcome, morgan!"
     press(controller, "*")
-    assert press(controller, "1#").title == "morgan  (001)"    # # enters early
+    assert press(controller, "1#").title == "Sign out morgan?"  # # enters early
 
 
 def test_scan_shows_the_team_name(services):

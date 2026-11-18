@@ -128,12 +128,6 @@ class UserService:
         with self.db.transaction() as cur:
             return repo.list_users(cur, include_inactive)
 
-    def set_pin(self, code: str, pin: str | None) -> None:
-        """Set someone's keypad PIN, or remove it with None."""
-        user = self.get_by_code(code)
-        with self.db.transaction() as cur:
-            repo.set_user_pin(cur, user["id"], hash_pin(pin) if pin else None)
-
     def rename(self, code: str, username: str) -> None:
         user = self.get_by_code(code)
         try:

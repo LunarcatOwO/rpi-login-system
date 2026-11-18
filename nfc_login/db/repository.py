@@ -74,10 +74,6 @@ def list_users(cur, include_inactive: bool = False) -> list[dict]:
     return [with_code(r) for r in cur.fetchall()]
 
 
-def set_user_pin(cur, user_id: int, pin_hash: str | None) -> None:
-    cur.execute("UPDATE users SET pin_hash = %s WHERE id = %s", (pin_hash, user_id))
-
-
 def set_user_active(cur, user_id: int, active: bool) -> None:
     cur.execute("UPDATE users SET is_active = %s WHERE id = %s", (int(active), user_id))
 

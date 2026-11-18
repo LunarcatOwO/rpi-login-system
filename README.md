@@ -45,11 +45,11 @@ clock. You can also update by hand: `cd ~/rpi-login-system && git pull`, then re
 
 | Key | Does |
 |---|---|
-| A-D | Start typing a team member's ID (A007). Mentors type just the number (007). |
+| A-D | Start typing a team member's ID (A007). Mentors type just the number (007). A confirm screen shows who it is: # signs in/out, * cancels. No PIN needed. |
 | # | Enter |
 | * | Backspace / back. From the start screen it opens the admin menu (asks for the PIN). |
 
-The admin menu has three parts: **1 People** (add, enroll cards, teams, PINs,
+The admin menu has three parts: **1 People** (add, enroll cards, teams, rename,
 deactivate, list deactivated), **2 Hours** (add/subtract, sign in/out, who's here,
 new season, past seasons) and **3 System** (info, updates, Wi-Fi, restart/shut down, minimize).
 Only admins can enroll cards.

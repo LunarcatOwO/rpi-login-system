@@ -24,7 +24,6 @@ from nfc_login.db import Database
 from nfc_login.db import repository as repo
 from nfc_login.services import leaderboard as lb
 from nfc_login.services import timefmt
-from nfc_login.services.pins import verify_pin
 
 # What a scan did.
 SIGNED_IN = "signed_in"
@@ -34,10 +33,6 @@ IGNORED = "ignored"
 
 class AttendanceError(Exception):
     """A problem that should be shown to the person at the kiosk."""
-
-
-class WrongPinError(AttendanceError):
-    """Counted separately so the keypad can lock after too many wrong PINs."""
 
 
 @dataclass
@@ -101,18 +96,6 @@ class AttendanceService:
             user = repo.get_user(cur, tag["user_id"])
         if not user or not user["is_active"]:
             raise AttendanceError("This card's user is deactivated.")
-        return user
-
-    def check_keypad_login(self, user_id: int, pin: str) -> dict:
-        """Signing in by ID + PIN instead of a card: check the PIN."""
-        with self.db.transaction() as cur:
-            user = repo.get_user(cur, user_id)
-        if not user or not user["is_active"]:
-            raise AttendanceError("No active user with that ID.")
-        if not user["pin_hash"]:
-            raise AttendanceError("No PIN set for this user. Use your card.")
-        if not verify_pin(pin, user["pin_hash"]):
-            raise WrongPinError("Wrong PIN.")
         return user
 
     # ------------------------------------------------------------ scanning

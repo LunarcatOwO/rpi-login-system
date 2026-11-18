@@ -334,7 +334,7 @@ def test_remove_someones_cards(services):
     assert controller.handle_card("04AA").title == "Not signed in"
 
 
-def test_rename_and_set_a_pin(services, clock):
+def test_rename_and_no_personal_pins(services, clock):
     controller, users, _jobs, _published, _system = make(services)
     users.add("Taylor", "A")
     users.add("Sam Lee", "A")
@@ -349,21 +349,8 @@ def test_rename_and_set_a_pin(services, clock):
     press(controller, "*" * 13)                                # delete it all, back
     press(controller, "**")
     assert controller.state == kc.ADMIN_MENU
-    screen = press(controller, "16A001")
-    assert screen.title == "PIN for Taylor Jones (A001)"
-    assert press(controller, "4321#4321#").title == "PIN set"
-    assert press(controller, "A00114321#").title == "Welcome, Taylor Jones!"
-    screen = press(controller, "*2468#16A001")
-    assert "D  Remove their PIN" in screen.lines
-    # Removing it asks first, whether by D or by # with nothing typed.
-    assert press(controller, "#").title == "Remove Taylor Jones's PIN?"
-    assert press(controller, "*").title == "People"
-    assert users.get_by_code("A001")["pin_hash"] is not None
-    assert press(controller, "6A001D").title == "Remove Taylor Jones's PIN?"
-    assert press(controller, "#").title == "PIN removed"
-    assert users.get_by_code("A001")["pin_hash"] is None
-    assert "D  Remove their PIN" not in press(controller, "*2468#16A001").lines
-    assert press(controller, "D").title == "PIN for Taylor Jones (A001)"   # no PIN: D does nothing
+    assert not any("PIN" in line for line in press(controller, "1").lines)  # no personal PINs
+    assert press(controller, "6").title.startswith("Deactivate")  # 6 is deactivate now
 
 
 def test_rename_unchanged_and_long_names(services):
@@ -428,14 +415,14 @@ def test_deactivate_and_reactivate(services, clock):
     users.enroll_tag("04AA", users.add("Taylor", "D")["id"])
     controller.handle_card("04AA")
     clock.advance(minutes=20)
-    screen = press(controller, "*2468#17D001")
+    screen = press(controller, "*2468#16D001")
     assert screen.title == "Deactivate Taylor?"
     assert press(controller, "#").title == "Taylor deactivated"
     assert controller.attendance.currently_signed_in() == []   # signed out first
     assert controller.handle_card("04AA").tone == "error"
     assert press(controller, "D001").lines[0] == "D001 is deactivated."
     press(controller, "*")
-    screen = press(controller, "*2468#17D001")
+    screen = press(controller, "*2468#16D001")
     assert screen.title == "Reactivate Taylor?"
     assert press(controller, "#").title == "Taylor reactivated"
     clock.advance(minutes=1)
@@ -505,14 +492,14 @@ def test_who_is_here_pages(services, clock):
 
 def test_list_deactivated_people(services):
     controller, users, _jobs, _published, _system = make(services)
-    screen = press(controller, "*2468#18")
+    screen = press(controller, "*2468#17")
     assert screen.title == "Deactivated: 0" and screen.lines[0] == "Nobody"
     assert press(controller, "*").title == "People"
     for n in range(10):
         users.add(f"Person {n}", "B")
     for code in ("B002", "B005", *[f"B{n:03d}" for n in range(6, 11)], "B004", "B003"):
         users.set_active(code, False)
-    screen = press(controller, "8")
+    screen = press(controller, "7")
     assert screen.title == "Deactivated: 9" and screen.lines[0] == "B002  Person 1"
     assert screen.lines[-1] == "#  next page      *  back"
     screen = press(controller, "#")
