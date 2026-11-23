@@ -142,6 +142,19 @@ class UserService:
         with self.db.transaction() as cur:
             repo.set_user_active(cur, user["id"], active)
 
+    def delete(self, user_id: int) -> dict:
+        """Delete someone for good: their ID, cards and hours in every season.
+
+        Season CSVs already saved in the archive folder are left alone. To keep
+        someone's hours, deactivate them instead.
+        """
+        with self.db.transaction() as cur:
+            user = repo.get_user(cur, user_id, for_update=True)
+            if not user:
+                raise UserError("No user with that ID.")
+            gone = repo.delete_user(cur, user_id)
+        return {**user, "deleted": gone}
+
     # ------------------------------------------------------------ cards
 
     def enroll_tag(self, uid: str, user_id: int) -> dict:

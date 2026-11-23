@@ -143,6 +143,18 @@ def cmd_user_deactivate(s, args, config):
     print("User deactivated (history kept, hidden from leaderboard, cards stop working).")
 
 
+def cmd_user_delete(s, args, config):
+    user = s.users.get_by_code(args.code)
+    if not args.yes:
+        print(f"This erases {user['username']} ({user['code']}), their cards and their hours "
+              "in every season. It can't be undone (deactivate keeps their hours).")
+        if input("Type DELETE to confirm: ").strip() != "DELETE":
+            print("Not deleted.")
+            return
+    s.users.delete(user["id"])
+    print(f"Deleted {user['username']} ({user['code']}).")
+
+
 def cmd_user_activate(s, args, config):
     s.users.set_active(args.code, True)
     print("User reactivated.")
@@ -397,6 +409,10 @@ def build_parser() -> argparse.ArgumentParser:
         c = user.add_parser(name, help=helptext)
         c.add_argument("code", help="user ID, e.g. A007 (or 007 for a mentor)")
         c.set_defaults(func=func)
+    c = user.add_parser("delete", help="erase a user, their cards and all their hours")
+    c.add_argument("code", help="user ID, e.g. A007 (or 007 for a mentor)")
+    c.add_argument("--yes", action="store_true", help="don't ask to type DELETE first")
+    c.set_defaults(func=cmd_user_delete)
     c = user.add_parser("rename", help="change a username")
     c.add_argument("code", help="user ID, e.g. A007 (or 007 for a mentor)")
     c.add_argument("username")

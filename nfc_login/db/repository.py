@@ -78,6 +78,18 @@ def set_user_active(cur, user_id: int, active: bool) -> None:
     cur.execute("UPDATE users SET is_active = %s WHERE id = %s", (int(active), user_id))
 
 
+def delete_user(cur, user_id: int) -> dict:
+    """Erase a user and everything that points at them. Returns how many rows went."""
+    gone = {}
+    # Children first: every one of these tables has a foreign key to users.
+    for table in ("legacy_records", "adjustments", "sessions", "tags"):
+        cur.execute(f"DELETE FROM {table} WHERE user_id = %s", (user_id,))
+        gone[table] = cur.rowcount
+    cur.execute("DELETE FROM users WHERE id = %s", (user_id,))
+    gone["users"] = cur.rowcount
+    return gone
+
+
 def rename_user(cur, user_id: int, username: str) -> None:
     cur.execute("UPDATE users SET username = %s WHERE id = %s", (username, user_id))
 
