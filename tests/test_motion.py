@@ -14,28 +14,27 @@ from __future__ import annotations
 
 import pytest
 
-from nfc_login.ui.motion import SPIN_DELAY_MS, SPIN_MS, spinner_angles
+from nfc_login.ui.motion import BACKSLASH, SLASH, SPIN_MS, SQUARE, spinner_dots
 
 
-def test_dots_start_one_after_another_at_the_same_place():
-    assert spinner_angles(0) == [225, None, None, None, None]
-    angles = spinner_angles(4 * SPIN_DELAY_MS)
-    assert angles[4] == 225 and all(a is not None for a in angles)
-    assert angles[0] != 225                                   # the first has moved on
+def test_starts_folded_into_a_slash_line():
+    assert spinner_dots(0) == pytest.approx(SLASH)
+    assert all(x == pytest.approx(-y) for x, y in spinner_dots(0))     # all on the / diagonal
 
 
-def test_a_dot_goes_round_twice_then_hides_until_its_next_turn():
-    assert spinner_angles(0.07 * SPIN_MS)[0] == pytest.approx(345)
-    assert spinner_angles(0.75 * SPIN_MS)[0] == pytest.approx(945 % 360)
-    assert spinner_angles(0.8 * SPIN_MS)[0] is None           # resting
-    assert spinner_angles(SPIN_MS)[0] == 225                  # and round again
+def test_rests_as_a_square_then_folds_the_other_way():
+    assert spinner_dots(0.35 * SPIN_MS) == pytest.approx(SQUARE)
+    assert spinner_dots(0.50 * SPIN_MS) == pytest.approx(BACKSLASH)
+    assert all(x == pytest.approx(y) for x, y in spinner_dots(0.5 * SPIN_MS))   # the \ diagonal
+    assert spinner_dots(0.85 * SPIN_MS) == pytest.approx(SQUARE)
+    assert spinner_dots(SPIN_MS) == pytest.approx(SLASH)               # and round again
 
 
-def test_angles_only_move_forward_while_showing():
-    last, seen = None, 0
-    for ms in range(0, int(0.75 * SPIN_MS), 20):
-        a = spinner_angles(ms)[0]
-        unwrapped = a if last is None else last + (a - last % 360) % 360
-        assert last is None or unwrapped >= last - 1e-9
-        last, seen = unwrapped, seen + 1
-    assert last - 225 == pytest.approx(720, abs=5)            # two laps
+def test_dots_move_smoothly_and_stay_inside_the_icon():
+    last = spinner_dots(0)
+    for ms in range(10, 2 * SPIN_MS, 10):
+        dots = spinner_dots(ms)
+        assert all(abs(x) <= 1.5 + 1e-9 and abs(y) <= 1.5 + 1e-9 for x, y in dots)
+        # no jumps between frames 10 ms apart (leaving the line is the quickest part)
+        assert max(abs(a - c) + abs(b - d) for (a, b), (c, d) in zip(dots, last)) < 1.5
+        last = dots

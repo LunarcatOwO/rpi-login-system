@@ -25,7 +25,6 @@
 from __future__ import annotations
 
 import logging
-import math
 import queue
 import threading
 import time
@@ -35,7 +34,7 @@ from datetime import datetime
 
 from nfc_login.kiosk.controller import KioskController, Screen
 from nfc_login.services import timefmt
-from nfc_login.ui.motion import spinner_angles
+from nfc_login.ui.motion import spinner_dots
 
 log = logging.getLogger(__name__)
 
@@ -223,7 +222,7 @@ class KioskWindow:
         self.spinner = tk.Canvas(title_row, width=SPIN_SIZE, height=SPIN_SIZE, bg=COLORS["bg"],
                                  highlightthickness=0, bd=0)
         self._dots = [self.spinner.create_oval(0, 0, 0, 0, width=0, state="hidden")
-                      for _ in range(5)]
+                      for _ in range(4)]
         self._spin_since: float | None = None
         # The screen's lines (_draw_lines).
         self.lines_frame = tk.Frame(status, bg=COLORS["bg"])
@@ -403,14 +402,9 @@ class KioskWindow:
         if self._spin_since is None:
             return
         ms = (time.monotonic() - self._spin_since) * 1000
-        middle, radius, dot = SPIN_SIZE / 2, SPIN_SIZE / 2 - 2.5, 2.2
-        for item, angle in zip(self._dots, spinner_angles(ms)):
-            if angle is None:
-                self.spinner.itemconfig(item, state="hidden")
-                continue
-            # Angle clockwise from the top -> x, y on the circle (y grows downwards).
-            x = middle + radius * math.sin(math.radians(angle))
-            y = middle - radius * math.cos(math.radians(angle))
+        middle, unit, dot = SPIN_SIZE / 2, SPIN_SIZE * .2, SPIN_SIZE * .095
+        for item, (ux, uy) in zip(self._dots, spinner_dots(ms)):
+            x, y = middle + ux * unit, middle + uy * unit
             self.spinner.coords(item, x - dot, y - dot, x + dot, y + dot)
             self.spinner.itemconfig(item, state="normal")
         self.root.after(FRAME_MS, self._spin)

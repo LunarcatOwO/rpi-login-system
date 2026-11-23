@@ -55,26 +55,55 @@ main { flex: 1; display: flex; min-height: 0; }
 .status h1 { margin: 0; font-size: 31px; line-height: 1.2; overflow-wrap: anywhere;
   display: flex; align-items: center; gap: 14px; letter-spacing: -.005em; }
 #title { color: var(--accent); transition: color .35s var(--ease); min-width: 0; }
-/* While the kiosk waits on something (Wi-Fi, an update): dots that chase round a
-   circle, like Windows'. Only transform and opacity move, so it's cheap on a Pi. */
-.spinner { --size: 28px; --dot: 4px; position: relative; width: var(--size); height: var(--size);
-  flex: none; color: var(--accent); display: none; }
+/* While the kiosk waits on something (Wi-Fi, an update): four dots in a square
+   that fold into a diagonal line and spring back, one diagonal then the other.
+   --size sets the whole thing. */
+.spinner { --size: 28px; --u: calc(var(--size) * .2); position: relative;
+  width: var(--size); height: var(--size); flex: none; color: var(--accent); display: none; }
 .busy .spinner, .spinner.on { display: block; }
-.spinner i { position: absolute; inset: 0; opacity: 0; animation: orbit 5.5s infinite; }
-.spinner i::after { content: ""; position: absolute; left: 50%; top: 0; width: var(--dot);
-  height: var(--dot); margin-left: calc(var(--dot) / -2); border-radius: 50%; background: currentColor; }
-.spinner i:nth-child(2) { animation-delay: .24s; }
-.spinner i:nth-child(3) { animation-delay: .48s; }
-.spinner i:nth-child(4) { animation-delay: .72s; }
-.spinner i:nth-child(5) { animation-delay: .96s; }
-@keyframes orbit {
-  0% { transform: rotate(225deg); opacity: 1; animation-timing-function: ease-out; }
-  7% { transform: rotate(345deg); animation-timing-function: linear; }
-  30% { transform: rotate(455deg); animation-timing-function: ease-in-out; }
-  39% { transform: rotate(690deg); animation-timing-function: linear; }
-  70% { transform: rotate(815deg); opacity: 1; animation-timing-function: ease-out; }
-  75% { transform: rotate(945deg); animation-timing-function: ease-out; }
-  76%, 100% { transform: rotate(945deg); opacity: 0; }
+.spinner i { position: absolute; left: 50%; top: 50%; width: calc(var(--size) * .19);
+  height: calc(var(--size) * .19); margin: calc(var(--size) * -.095); border-radius: 50%;
+  background: currentColor; animation: 1.3s infinite; }
+/* resting square, for when animations are off */
+.spinner i:nth-child(1) { transform: translate(calc(var(--u) * -1), calc(var(--u) * -1)); animation-name: fold-1; }
+.spinner i:nth-child(2) { transform: translate(var(--u), calc(var(--u) * -1)); animation-name: fold-2; }
+.spinner i:nth-child(3) { transform: translate(calc(var(--u) * -1), var(--u)); animation-name: fold-3; }
+.spinner i:nth-child(4) { transform: translate(var(--u), var(--u)); animation-name: fold-4; }
+@keyframes fold-1 {   /* top left dot */
+  0%, 3% { transform: translate(calc(var(--u) * 0.5), calc(var(--u) * -0.5)); animation-timing-function: cubic-bezier(.2, .9, .3, 1); }
+  9% { transform: translate(calc(var(--u) * 0.4), calc(var(--u) * -1)); animation-timing-function: cubic-bezier(.3, .6, .3, 1); }
+  30%, 42% { transform: translate(calc(var(--u) * -1), calc(var(--u) * -1)); animation-timing-function: cubic-bezier(.6, 0, .9, .5); }
+  50%, 53% { transform: translate(calc(var(--u) * -1.5), calc(var(--u) * -1.5)); animation-timing-function: cubic-bezier(.2, .9, .3, 1); }
+  59% { transform: translate(calc(var(--u) * -1.1), calc(var(--u) * -1)); animation-timing-function: cubic-bezier(.3, .6, .3, 1); }
+  80%, 92% { transform: translate(calc(var(--u) * -1), calc(var(--u) * -1)); animation-timing-function: cubic-bezier(.6, 0, .9, .5); }
+  100% { transform: translate(calc(var(--u) * 0.5), calc(var(--u) * -0.5)); }
+}
+@keyframes fold-2 {   /* top right dot */
+  0%, 3% { transform: translate(calc(var(--u) * 1.5), calc(var(--u) * -1.5)); animation-timing-function: cubic-bezier(.2, .9, .3, 1); }
+  9% { transform: translate(calc(var(--u) * 1.1), calc(var(--u) * -1)); animation-timing-function: cubic-bezier(.3, .6, .3, 1); }
+  30%, 42% { transform: translate(calc(var(--u) * 1), calc(var(--u) * -1)); animation-timing-function: cubic-bezier(.6, 0, .9, .5); }
+  50%, 53% { transform: translate(calc(var(--u) * 0.5), calc(var(--u) * 0.5)); animation-timing-function: cubic-bezier(.2, .9, .3, 1); }
+  59% { transform: translate(calc(var(--u) * -0.4), calc(var(--u) * -1)); animation-timing-function: cubic-bezier(.3, .6, .3, 1); }
+  80%, 92% { transform: translate(calc(var(--u) * 1), calc(var(--u) * -1)); animation-timing-function: cubic-bezier(.6, 0, .9, .5); }
+  100% { transform: translate(calc(var(--u) * 1.5), calc(var(--u) * -1.5)); }
+}
+@keyframes fold-3 {   /* bottom left dot */
+  0%, 3% { transform: translate(calc(var(--u) * -1.5), calc(var(--u) * 1.5)); animation-timing-function: cubic-bezier(.2, .9, .3, 1); }
+  9% { transform: translate(calc(var(--u) * -1.1), calc(var(--u) * 1)); animation-timing-function: cubic-bezier(.3, .6, .3, 1); }
+  30%, 42% { transform: translate(calc(var(--u) * -1), calc(var(--u) * 1)); animation-timing-function: cubic-bezier(.6, 0, .9, .5); }
+  50%, 53% { transform: translate(calc(var(--u) * -0.5), calc(var(--u) * -0.5)); animation-timing-function: cubic-bezier(.2, .9, .3, 1); }
+  59% { transform: translate(calc(var(--u) * 0.4), calc(var(--u) * 1)); animation-timing-function: cubic-bezier(.3, .6, .3, 1); }
+  80%, 92% { transform: translate(calc(var(--u) * -1), calc(var(--u) * 1)); animation-timing-function: cubic-bezier(.6, 0, .9, .5); }
+  100% { transform: translate(calc(var(--u) * -1.5), calc(var(--u) * 1.5)); }
+}
+@keyframes fold-4 {   /* bottom right dot */
+  0%, 3% { transform: translate(calc(var(--u) * -0.5), calc(var(--u) * 0.5)); animation-timing-function: cubic-bezier(.2, .9, .3, 1); }
+  9% { transform: translate(calc(var(--u) * -0.4), calc(var(--u) * 1)); animation-timing-function: cubic-bezier(.3, .6, .3, 1); }
+  30%, 42% { transform: translate(calc(var(--u) * 1), calc(var(--u) * 1)); animation-timing-function: cubic-bezier(.6, 0, .9, .5); }
+  50%, 53% { transform: translate(calc(var(--u) * 1.5), calc(var(--u) * 1.5)); animation-timing-function: cubic-bezier(.2, .9, .3, 1); }
+  59% { transform: translate(calc(var(--u) * 1.1), calc(var(--u) * 1)); animation-timing-function: cubic-bezier(.3, .6, .3, 1); }
+  80%, 92% { transform: translate(calc(var(--u) * 1), calc(var(--u) * 1)); animation-timing-function: cubic-bezier(.6, 0, .9, .5); }
+  100% { transform: translate(calc(var(--u) * -0.5), calc(var(--u) * 0.5)); }
 }
 /* A result screen's time left before the start screen comes back. */
 .hold { position: absolute; left: 24px; right: 16px; bottom: 8px; height: 3px; border-radius: 2px;
@@ -144,7 +173,7 @@ body.typing aside { display: none; }
   border-radius: 8px; background: #3a1d22; box-shadow: 0 0 0 1px var(--error); color: #ffd5d5;
   font-size: 13px; display: none; align-items: center; gap: 10px; }
 .offline.on { display: flex; animation: pop-in .3s var(--ease); }
-.offline .spinner { --size: 18px; --dot: 3px; color: var(--error); }
+.offline .spinner { --size: 18px; color: var(--error); }
 </style>
 </head>
 <body>
@@ -161,7 +190,7 @@ body.typing aside { display: none; }
 </header>
 <main>
   <section class="status" id="status">
-    <h1><span id="title"></span><span class="spinner" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span></h1>
+    <h1><span id="title"></span><span class="spinner" aria-hidden="true"><i></i><i></i><i></i><i></i></span></h1>
     <div class="lines" id="lines"></div>
     <div class="kbd" id="kbd"></div>
     <div class="hold" id="hold"><i></i></div>
@@ -183,7 +212,7 @@ body.typing aside { display: none; }
   SIMULATOR card UID: <input id="uid" value="04A1B2C3D4E5F6">
   <button id="tap">Tap card</button> Enter=#  Backspace/Esc=*
 </div>
-<div class="offline" id="offline"><span class="spinner on" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>Kiosk service not responding, reconnecting…</div>
+<div class="offline" id="offline"><span class="spinner on" aria-hidden="true"><i></i><i></i><i></i><i></i></span>Kiosk service not responding, reconnecting…</div>
 
 <script>
 // The kiosk screen. Python (web_kiosk.py) decides everything; this page only

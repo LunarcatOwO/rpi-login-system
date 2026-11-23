@@ -14,39 +14,48 @@
 
 from __future__ import annotations
 
-# The loading spinner: five dots chasing round a circle, like Windows'. Each dot
-# follows these keyframes (fraction of the cycle, angle in degrees, easing to the
-# next one), a little behind the one before; it's hidden from 76% of its cycle.
-SPIN_MS = 5_500
-SPIN_DELAY_MS = 240
-SPIN_KEYS = [(0, 225, "out"), (0.07, 345, "linear"), (0.30, 455, "inout"),
-             (0.39, 690, "linear"), (0.70, 815, "out"), (0.75, 945, "out"), (0.76, 945, "")]
+# The loading spinner: four dots in a square that fold into a diagonal line and
+# spring back out, first along one diagonal, then the other. Positions are in
+# units of half the square's side, (0, 0) is the middle and y grows downwards.
+SPIN_MS = 1_300
+SQUARE = [(-1, -1), (1, -1), (-1, 1), (1, 1)]          # top left, top right, bottom left, bottom right
+SLASH = [(.5, -.5), (1.5, -1.5), (-1.5, 1.5), (-.5, .5)]        # folded into a / line
+SLASH_OUT = [(.4, -1), (1.1, -1), (-1.1, 1), (-.4, 1)]          # just after, springing back
+BACKSLASH = [(-1.5, -1.5), (.5, .5), (-.5, -.5), (1.5, 1.5)]    # folded into a \ line
+BACKSLASH_OUT = [(-1.1, -1), (-.4, -1), (.4, 1), (1.1, 1)]
+
+# Easing curves, the same cubic-beziers as the CSS.
+SNAP = (.2, .9, .3, 1)       # leaving the line: fast, then slowing
+SETTLE = (.3, .6, .3, 1)     # easing back into the square
+FOLD = (.6, 0, .9, .5)       # folding in: slow start, speeding up
+
+# (fraction of the cycle, positions, easing to the next keyframe), like kiosk.html.
+SPIN_KEYS = [(0, SLASH, SNAP), (.03, SLASH, SNAP), (.09, SLASH_OUT, SETTLE),
+             (.30, SQUARE, FOLD), (.42, SQUARE, FOLD), (.50, BACKSLASH, SNAP),
+             (.53, BACKSLASH, SNAP), (.59, BACKSLASH_OUT, SETTLE), (.80, SQUARE, FOLD),
+             (.92, SQUARE, FOLD), (1, SLASH, None)]
 
 
-def _ease(kind: str, x: float) -> float:
-    """Map progress x (0-1) to eased progress, for smooth starts and stops."""
-    if kind == "out":
-        return 1 - (1 - x) ** 3       # fast, then slowing down
-    if kind == "inout":
-        return x * x * (3 - 2 * x)    # slow, fast, slow
-    return x                          # linear: constant speed
+def _bezier(curve: tuple, x: float) -> float:
+    """CSS cubic-bezier(x1, y1, x2, y2): eased progress for progress x (0-1)."""
+    x1, y1, x2, y2 = curve
+    point = lambda t, a, b: 3 * a * t * (1 - t) ** 2 + 3 * b * t * t * (1 - t) + t ** 3
+    lo, hi = 0.0, 1.0
+    for _ in range(30):                  # find the t whose x matches, by halving
+        t = (lo + hi) / 2
+        if point(t, x1, x2) < x:
+            lo = t
+        else:
+            hi = t
+    return point((lo + hi) / 2, y1, y2)
 
 
-def spinner_angles(ms: float) -> list[float | None]:
-    """Where each spinner dot is `ms` after it started: degrees clockwise from the
-    top, or None while that dot is hidden."""
-    angles: list[float | None] = []
-    for n in range(5):
-        t = ms - n * SPIN_DELAY_MS        # each dot starts a little later
-        if t < 0:
-            angles.append(None)       # not started yet
-            continue
-        f = (t % SPIN_MS) / SPIN_MS       # how far through its cycle, 0-1
-        angle = None
-        # Find the two keyframes f sits between and blend their angles.
-        for (f0, a0, kind), (f1, a1, _) in zip(SPIN_KEYS, SPIN_KEYS[1:]):
-            if f0 <= f < f1 and kind:
-                angle = (a0 + (a1 - a0) * _ease(kind, (f - f0) / (f1 - f0))) % 360
-                break
-        angles.append(angle)
-    return angles
+def spinner_dots(ms: float) -> list[tuple[float, float]]:
+    """Where the four spinner dots are `ms` after it started (see SQUARE for the units)."""
+    f = (ms % SPIN_MS) / SPIN_MS             # how far through the cycle, 0-1
+    # Find the two keyframes f sits between and blend their positions.
+    for (f0, a, curve), (f1, b, _) in zip(SPIN_KEYS, SPIN_KEYS[1:]):
+        if f0 <= f < f1:
+            e = _bezier(curve, (f - f0) / (f1 - f0))
+            return [(ax + (bx - ax) * e, ay + (by - ay) * e) for (ax, ay), (bx, by) in zip(a, b)]
+    return list(SLASH)
