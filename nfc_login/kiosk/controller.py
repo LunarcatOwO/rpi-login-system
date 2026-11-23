@@ -40,7 +40,8 @@ from nfc_login.services.attendance import (
     UserStats,
 )
 from nfc_login.services.seasons import SeasonError
-from nfc_login.services.system import SystemActionError, WifiOffError
+from nfc_login.services.system import (EAP_METHODS, EnterpriseLogin, SystemActionError,
+                                       WifiOffError)
 from nfc_login.services.updates import UpdateError
 from nfc_login.services.users import UserError, UserService
 from nfc_login.tags.payload import TagTooSmall, build_message
@@ -85,6 +86,8 @@ PAST_SEASON = "past_season"   # one finished season's hours, a page at a time
 UPDATE_CONFIRM = "update_confirm"
 WIFI_LIST = "wifi_list"
 WIFI_PASSWORD = "wifi_password"
+WIFI_LOGIN = "wifi_login"     # an enterprise network: username, password and options
+WIFI_FIELD = "wifi_field"     # typing one of those (context["field"])
 ADMINPIN_OLD = "adminpin_old"  # current admin PIN before changing it
 ADMINPIN_NEW = "adminpin_new"
 ADMINPIN_AGAIN = "adminpin_again"
@@ -94,7 +97,7 @@ ID_STATES = (USER_ID, ENROLL_ID, ADJUST_ID, MOVE_ID, UNCARD_ID, RENAME_ID, ACTIV
              TOGGLE_ID, DELETE_ID)
 PIN_STATES = (ADMIN_PIN, ADMINPIN_NEW, ADMINPIN_AGAIN, SEASON_PIN, ADMINPIN_OLD)
 NAME_STATES = (NEW_NAME, RENAME_NAME)
-TEXT_STATES = (*NAME_STATES, WIFI_PASSWORD)
+TEXT_STATES = (*NAME_STATES, WIFI_PASSWORD, WIFI_FIELD)
 
 # Where * goes from an empty entry.
 BACK = {
@@ -108,6 +111,7 @@ BACK = {
     UPDATE_CONFIRM: SYSTEM_MENU, WIFI_LIST: SYSTEM_MENU, ADMINPIN_NEW: SYSTEM_MENU,
     ADMINPIN_OLD: SYSTEM_MENU,
     WIFI_PASSWORD: WIFI_LIST, ADMINPIN_AGAIN: ADMINPIN_NEW,
+    WIFI_LOGIN: WIFI_LIST, WIFI_FIELD: WIFI_LOGIN,
 }
 
 # Limits and timings.
@@ -116,6 +120,12 @@ MAX_AMOUNT = 4                # HHMM, up to 99h 59m per adjustment
 MAX_NAME = 40
 SETUP_REMINDER = "Setup changed in an update: run bash scripts/setup-pi.sh"
 MAX_PASSWORD = 63             # longest WPA passphrase
+MAX_LOGIN = 128               # enterprise usernames and passwords can be longer
+# The enterprise sign-in's typed fields: key -> (EnterpriseLogin attribute, title).
+WIFI_FIELDS = {"username": ("username", "Username"),
+               "password": ("password", "Password"),
+               "anon": ("anonymous_identity", "Anonymous identity"),
+               "domain": ("domain", "Server domain")}
 MAX_WIFI_LIST = 8
 HERE_PAGE = 8                 # people per page on the admin "Who is here" list
 MAX_PIN_FAILURES = 5
@@ -396,6 +406,7 @@ class KioskController:
                 CONFIRM: self._confirm_key,
                 UPDATE_CONFIRM: self._update_confirm_key,
                 WIFI_LIST: self._wifi_list_key,
+                WIFI_LOGIN: self._wifi_login_key,
                 HERE_LIST: self._here_list_key,
                 OFF_LIST: self._here_list_key,   # same paging
                 PAST_SEASON: self._here_list_key,
@@ -425,8 +436,9 @@ class KioskController:
                 return self._redraw()
             if len(char) != 1 or not char.isprintable():
                 return self._redraw()
-            if self.state == WIFI_PASSWORD:
-                if len(self.buffer) < MAX_PASSWORD:
+            if self.state in (WIFI_PASSWORD, WIFI_FIELD):
+                if len(self.buffer) < (MAX_PASSWORD if self.state == WIFI_PASSWORD
+                                       else MAX_LOGIN):
                     self.buffer += char
                 return self._redraw()
             self.buffer = _add_name_char(self.buffer, char)
@@ -834,6 +846,12 @@ class KioskController:
 
     def _text_key(self, key: str) -> Screen:
         """A keypad key while a name or Wi-Fi password is being typed; # submits it."""
+        if self.state == WIFI_FIELD:
+            if key.isdigit():           # digits type too
+                return self.handle_char(key)
+            if key == "#":
+                return self._wifi_field_done()
+            return self._redraw()
         if self.state == WIFI_PASSWORD:
             if key.isdigit():           # the keypad's digits type too
                 return self.handle_char(key)
@@ -998,20 +1016,33 @@ class KioskController:
         if not key.isdigit() or not 1 <= int(key) <= len(networks):
             return None
         network = networks[int(key) - 1]
+        if network.enterprise:          # username first, then the password
+            self.context = {"networks": networks, "ssid": network.ssid,
+                            "login": EnterpriseLogin()}
+            return self._wifi_field("username", first=True)
         if network.secured:
             return self._go(WIFI_PASSWORD, {"networks": networks, "ssid": network.ssid})
         return self._wifi_connect(network.ssid, None)
 
-    def _wifi_connect(self, ssid: str, password: str | None) -> Screen:
-        """Join the network in the background; back to the list if it fails."""
+    def _wifi_connect(self, ssid: str, password: str | None,
+                      login: EnterpriseLogin | None = None) -> Screen:
+        """Join the network in the background. If it fails: back to the list, or to
+        the enterprise sign-in screen (with what was typed) to fix it."""
         networks = self.context.get("networks", [])
+        context = dict(self.context)
 
         def job():
             try:
-                ip = self.system.wifi_connect(ssid, password)
+                if login is not None:
+                    ip = self.system.wifi_connect_enterprise(ssid, login)
+                else:
+                    ip = self.system.wifi_connect(ssid, password)
             except SystemActionError as exc:
                 def back_to_list(message=str(exc)):
-                    self._go(WIFI_LIST, {"networks": networks})
+                    if login is not None:
+                        self._go(WIFI_LOGIN, context)
+                    else:
+                        self._go(WIFI_LIST, {"networks": networks})
                     return self._error_keep_state(message)
                 return back_to_list
             if self.updates is not None and getattr(self.updates, "automatic", False):
@@ -1021,6 +1052,50 @@ class KioskController:
 
         return self._background(Screen(f"Connecting to {ssid}…", ["This can take 30 seconds."],
                                        "info"), job)
+
+    def _wifi_field(self, name: str, first: bool = False) -> Screen:
+        """Type one of the enterprise sign-in's fields (the old value to edit; not
+        the password, which is typed again or left empty to keep it)."""
+        self.context.update(field=name, first=first)
+        self.state = WIFI_FIELD
+        attr = WIFI_FIELDS[name][0]
+        self.buffer = "" if name == "password" else getattr(self.context["login"], attr)
+        return self._redraw()
+
+    def _wifi_field_done(self) -> Screen:
+        """# on a field: keep it. The first time through, the password comes next."""
+        ctx = self.context
+        login, name = ctx["login"], ctx["field"]
+        if name == "password":
+            if self.buffer:             # empty: keep the one typed before
+                login.password = self.buffer
+        else:
+            setattr(login, WIFI_FIELDS[name][0], self.buffer.strip())
+        if ctx.pop("first", False) and name == "username":
+            return self._wifi_field("password", first=True)
+        return self._go(WIFI_LOGIN)
+
+    def _wifi_login_key(self, key: str) -> Screen | None:
+        """The enterprise sign-in screen: pick a line to change it, # connects."""
+        login: EnterpriseLogin = self.context["login"]
+        if key == "#":
+            if not login.username:
+                return self._error_keep_state("Type the username first.")
+            if not login.password:
+                return self._error_keep_state("Type the password first.")
+            return self._wifi_connect(self.context["ssid"], None, login)
+        if key == "3":                  # next sign-in method
+            methods = list(EAP_METHODS)
+            login.method = methods[(methods.index(login.method) + 1) % len(methods)
+                                   if login.method in methods else 0]
+            return self._redraw()
+        if key == "5":
+            login.check_cert = not login.check_cert
+            return self._redraw()
+        field = {"1": "username", "2": "password", "4": "anon"}.get(key)
+        if key == "6" and login.check_cert:
+            field = "domain"
+        return self._wifi_field(field) if field else None
 
     def _power(self, action: str) -> Screen:
         """Restart or shut down the Pi, after a moment to read the screen."""
@@ -1187,11 +1262,39 @@ class KioskController:
                 "Type it on the keyboard below, then Done.",
                 "#  connect      *  delete / back",
             ], "prompt", entry=shown + "_", keyboard="text")
+        if state == WIFI_FIELD:
+            name = ctx["field"]
+            title = WIFI_FIELDS[name][1]
+            lines = ["Type it on the keyboard below, then Done.",
+                     "#  OK      *  delete / back"]
+            if name == "password":
+                shown = "•" * max(len(self.buffer) - 1, 0) + self.buffer[-1:]
+                if ctx["login"].password and not ctx.get("first"):
+                    lines.insert(0, "Leave it empty to keep the password typed before.")
+            else:
+                shown = self.buffer
+                if name == "anon":
+                    lines.insert(0, "Only if the network asks for one, e.g. anonymous@school.ca.")
+                elif name == "domain":
+                    lines.insert(0, "The server's name must end with this, e.g. school.ca.")
+            return Screen(f"{title} for {ctx['ssid']}", lines, "prompt", entry=shown + "_",
+                          keyboard="text")
+        if state == WIFI_LOGIN:
+            login = ctx["login"]
+            dots = "•" * min(len(login.password), 12)
+            lines = [f"1  Username: {_squeeze(login.username, 26) or 'not set'}",
+                     f"2  Password: {dots or 'not set'}",
+                     f"3  Sign-in method: {EAP_METHODS.get(login.method, EAP_METHODS['peap'])[0]}",
+                     f"4  Anonymous identity: {_squeeze(login.anonymous_identity, 20) or 'none'}",
+                     f"5  Check the server certificate: {'yes' if login.check_cert else 'no'}"]
+            if login.check_cert:
+                lines.append(f"6  Server domain: {_squeeze(login.domain, 24) or 'any'}")
+            return Screen(f"Sign in to {ctx['ssid']}", lines + ["", "#  connect      *  back"], "prompt")
         if state == WIFI_LIST:
             networks = ctx["networks"]
             # Spaces squeezed: 3 in a row would split the line's button in two.
             lines = [f"{n}  {_cut(' '.join(net.ssid.split()), 22)}  {net.signal}%"
-                     + ("  locked" if net.secured else "")
+                     + f"  {net.kind}"
                      + ("  (connected)" if net.in_use else "")
                      for n, net in enumerate(networks, start=1)]
             return Screen("Wi-Fi networks", (lines or ["No networks found."])
@@ -1415,6 +1518,12 @@ def local_ip() -> str:
             return s.getsockname()[0]
     except OSError:
         return "unknown"
+
+
+def _squeeze(text: str, limit: int) -> str:
+    """One line of typed text for a button line: no runs of spaces (3 in a row would
+    split the button in two), shortened to fit."""
+    return _cut(" ".join(text.split()), limit)
 
 
 def _cut(text: str, limit: int) -> str:

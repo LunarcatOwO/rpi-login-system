@@ -22,7 +22,9 @@ from nfc_login.services.system import (
     NETWORK_GONE,
     NMCLI_MISSING,
     WIFI_OFF,
+    WRONG_LOGIN,
     WRONG_PASSWORD,
+    EnterpriseLogin,
     SystemActionError,
     SystemActions,
     WifiNetwork,
@@ -89,10 +91,10 @@ def test_scan_parses_escaped_colons_and_backslashes():
                             ":Open Spot:55:\n"
                             ":Office:30:WPA1 WPA2\n")))
     assert actions(run).wifi_networks() == [
-        WifiNetwork("Home:Net", 72, secured=True, in_use=True),
-        WifiNetwork("Open Spot", 55, secured=False, in_use=False),
-        WifiNetwork("Cafe\\Guest", 40, secured=False, in_use=False),
-        WifiNetwork("Office", 30, secured=True, in_use=False),
+        WifiNetwork("Home:Net", 72, secured=True, in_use=True, label="WPA2"),
+        WifiNetwork("Open Spot", 55, secured=False, in_use=False, label="open"),
+        WifiNetwork("Cafe\\Guest", 40, secured=False, in_use=False, label="open"),
+        WifiNetwork("Office", 30, secured=True, in_use=False, label="WPA2"),
     ]
     assert run.calls == [[*SCAN, "yes"]]
     assert run.kwargs[0]["timeout"] == 20 and run.kwargs[0]["capture_output"]
@@ -108,10 +110,31 @@ def test_scan_merges_access_points_skips_hidden_and_sorts():
                             ":Lab:65:WPA2\n"
                             "garbage line\n")))
     assert actions(run).wifi_networks() == [
-        WifiNetwork("Office", 80, secured=True, in_use=True),
-        WifiNetwork("Gym", 65, secured=True, in_use=False),
-        WifiNetwork("Lab", 65, secured=True, in_use=False),
+        WifiNetwork("Office", 80, secured=True, in_use=True, label="WPA2"),
+        WifiNetwork("Gym", 65, secured=True, in_use=False, label="WPA3"),
+        WifiNetwork("Lab", 65, secured=True, in_use=False, label="WPA2"),
     ]
+
+
+def test_scan_tells_the_security_types_apart():
+    run = FakeRun((SCAN, ok(":School:90:WPA2 802.1X\n"
+                            ":eduroam:80:WPA1 WPA2 802.1X\n"
+                            ":Home:70:WPA2 WPA3\n"
+                            ":Old Router:60:WEP\n"
+                            ":Older:50:WPA1\n"
+                            ":Library:40:OWE\n"
+                            ":Mixed:30:WPA2\n"
+                            ":Mixed:20:WPA3 802.1X\n")))
+    found = {n.ssid: (n.kind, n.secured, n.enterprise) for n in actions(run).wifi_networks()}
+    assert found == {
+        "School": ("enterprise", True, True),
+        "eduroam": ("enterprise", True, True),
+        "Home": ("WPA3", True, False),
+        "Old Router": ("WEP", True, False),
+        "Older": ("WPA", True, False),
+        "Library": ("open", False, False),        # Enhanced Open: no password
+        "Mixed": ("enterprise", True, True),      # one access point wants a username
+    }
 
 
 def test_scan_with_nothing_around_is_an_empty_list():
@@ -141,7 +164,7 @@ def test_refused_scan_falls_back_to_the_networks_seen_last():
     run = FakeRun(([*SCAN, "yes"], fail("Error: Scanning not allowed immediately following "
                                          "previous scan.")),
                   ([*SCAN, "no"], ok(":Office:50:WPA2\n")))
-    assert actions(run).wifi_networks() == [WifiNetwork("Office", 50, True, False)]
+    assert actions(run).wifi_networks() == [WifiNetwork("Office", 50, True, False, label="WPA2")]
 
 
 def test_failed_scan_gives_a_short_reason():
@@ -273,6 +296,101 @@ def test_password_never_leaks_into_errors_or_logs(caplog):
     assert "didn't answer in time" in str(caught.value)
     assert caught.value.__context__ is None and caught.value.__cause__ is None
     assert PASSWORD not in caplog.text
+
+
+# -- Enterprise (802.1X) ------------------------------------------------------------
+
+ADD = ["nmcli", "connection", "add"]
+EDIT = ["nmcli", "connection", "edit", "id"]
+UP = ["nmcli", "--wait", "30", "connection", "up", "id"]
+SAVED_OK = "Connection 'School' (abc) successfully updated.\n"
+
+
+def test_enterprise_connect_makes_a_profile_with_the_password_on_stdin(caplog):
+    caplog.set_level(logging.DEBUG)
+    run = FakeRun((SAVED, ok("Wired connection 1\n")), (ADD, ok()), (EDIT, ok(SAVED_OK)),
+                  (UP, ok()))
+    login = EnterpriseLogin("bob@school.ca ", PASSWORD)
+    assert actions(run, ip="10.1.2.3").wifi_connect_enterprise("School", login) == "10.1.2.3"
+    add = run.calls[1]
+    settings = dict(zip(add[3::2], add[4::2]))
+    assert settings["con-name"] == settings["ssid"] == "School"
+    assert settings["wifi-sec.key-mgmt"] == "wpa-eap"
+    assert (settings["802-1x.eap"], settings["802-1x.phase2-auth"]) == ("peap", "mschapv2")
+    assert settings["802-1x.identity"] == "bob@school.ca"
+    assert settings["802-1x.system-ca-certs"] == "no"
+    assert run.calls[2] == [*EDIT, "School"]
+    assert run.kwargs[2]["input"] == f"set 802-1x.password {PASSWORD}\nsave persistent\nquit\n"
+    assert run.calls[3] == [*UP, "School"] and run.kwargs[3]["timeout"] == 45
+    assert not any(PASSWORD in arg for call in run.calls for arg in call)
+    assert PASSWORD not in caplog.text
+
+
+def test_enterprise_options_and_an_old_profile():
+    run = FakeRun((SAVED, ok("School\n")), (["nmcli", "connection", "delete"], ok()),
+                  (ADD, ok()), (EDIT, ok(SAVED_OK)), (UP, ok()))
+    login = EnterpriseLogin("bob", "pw", method="ttls-pap", anonymous_identity="anon@s.ca",
+                            check_cert=True, domain="radius.s.ca")
+    actions(run).wifi_connect_enterprise("School", login)
+    assert run.calls[1] == ["nmcli", "connection", "delete", "id", "School"]  # replaced
+    add = run.calls[2]
+    settings = dict(zip(add[3::2], add[4::2]))
+    assert (settings["802-1x.eap"], settings["802-1x.phase2-auth"]) == ("ttls", "pap")
+    assert settings["802-1x.anonymous-identity"] == "anon@s.ca"
+    assert settings["802-1x.system-ca-certs"] == "yes"
+    assert settings["802-1x.domain-suffix-match"] == "radius.s.ca"
+
+
+@pytest.mark.parametrize("err", [
+    "Error: Connection activation failed: (7) Secrets were required, but not provided.",
+    "Error: Connection activation failed: 802.1X supplicant failed.",
+])
+def test_enterprise_wrong_login_removes_the_profile(err):
+    run = FakeRun((SAVED, ok("")), (ADD, ok()), (EDIT, ok(SAVED_OK)), (UP, fail(err, 4)),
+                  (["nmcli", "connection", "delete"], ok()))
+    with pytest.raises(SystemActionError) as caught:
+        actions(run).wifi_connect_enterprise("School", EnterpriseLogin("bob", PASSWORD))
+    assert str(caught.value) == WRONG_LOGIN
+    assert run.calls[-1] == ["nmcli", "connection", "delete", "id", "School"]
+
+
+def test_enterprise_password_that_wont_save_is_never_shown():
+    echo = f"nmcli> set 802-1x.password {PASSWORD}\nError: failed to save\n"
+    run = FakeRun((SAVED, ok("")), (ADD, ok()), (EDIT, ok(echo)),
+                  (["nmcli", "connection", "delete"], ok()))
+    with pytest.raises(SystemActionError) as caught:
+        actions(run).wifi_connect_enterprise("School", EnterpriseLogin("bob", PASSWORD))
+    assert str(caught.value) == "Couldn't save the Wi-Fi password."
+    assert not any(c[:3] == UP[:3] and "up" in c for c in run.calls)   # never brought up
+
+
+def test_enterprise_save_needing_sudo_retries_with_it():
+    denied = ok("Error: Failed to save 'School': Insufficient privileges.\n")
+    run = FakeRun((SAVED, ok("")), (ADD, ok()), (EDIT, denied),
+                  (["sudo", "-n", *EDIT], ok(SAVED_OK)), (UP, ok()))
+    actions(run).wifi_connect_enterprise("School", EnterpriseLogin("bob", PASSWORD))
+    assert run.calls[3] == ["sudo", "-n", *EDIT, "School"]
+    assert run.kwargs[3]["input"].startswith("set 802-1x.password ")
+
+
+@pytest.mark.parametrize("login, message", [
+    (EnterpriseLogin("", "pw"), "Type the username first."),
+    (EnterpriseLogin("bob", ""), "Type the password first."),
+    (EnterpriseLogin("bob", "a\nsave"), "The password can't have line breaks."),
+])
+def test_enterprise_needs_a_username_and_password(login, message):
+    run = FakeRun()
+    with pytest.raises(SystemActionError) as caught:
+        actions(run).wifi_connect_enterprise("School", login)
+    assert str(caught.value) == message and run.calls == []
+
+
+def test_password_only_connect_to_an_enterprise_network_says_so():
+    run = FakeRun((SAVED, ok("")), (ASK, fail("Error: 802-1x.identity: property is missing.")),
+                  (["nmcli", "connection", "delete"], ok()))
+    with pytest.raises(SystemActionError) as caught:
+        actions(run).wifi_connect("School", PASSWORD)
+    assert "username" in str(caught.value)
 
 
 def test_connect_without_nmcli():
