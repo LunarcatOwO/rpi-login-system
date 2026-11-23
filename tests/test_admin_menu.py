@@ -12,6 +12,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 from nfc_login.hardware.simulated import SimulatedReader
 from nfc_login.kiosk import controller as kc
 from nfc_login.services.system import SystemActionError, WifiNetwork, WifiOffError
@@ -34,8 +36,9 @@ class Jobs:
 
 class FakeSystem:
     def __init__(self):
-        self.networks = [WifiNetwork("School Net", 80, True, False),
-                         WifiNetwork("Guest", 40, False, False)]
+        self.networks = [WifiNetwork("School Net", 80, True, False, label="WPA2"),
+                         WifiNetwork("Guest", 40, False, False),
+                         WifiNetwork("eduroam", 30, True, False, enterprise=True)]
         self.scan_error = None
         self.radio_off = False
         self.connect_error = None
@@ -61,6 +64,12 @@ class FakeSystem:
 
     def wifi_connect(self, ssid, password):
         self.connected.append((ssid, password))
+        if self.connect_error:
+            raise SystemActionError(self.connect_error)
+        return "10.0.0.9"
+
+    def wifi_connect_enterprise(self, ssid, login):
+        self.connected.append((ssid, dataclasses.replace(login)))   # a copy, as it was then
         if self.connect_error:
             raise SystemActionError(self.connect_error)
         return "10.0.0.9"
@@ -217,7 +226,8 @@ def test_wifi_password_and_connect(services):
     jobs.run()
     screen = published.pop()
     assert screen.title == "Wi-Fi networks"
-    assert screen.lines[:2] == ["1  School Net  80%  locked", "2  Guest  40%"]
+    assert screen.lines[:3] == ["1  School Net  80%  WPA2", "2  Guest  40%  open",
+                                "3  eduroam  30%  enterprise"]
     screen = press(controller, "1")
     assert screen.title == "Password for School Net" and screen.keyboard == "text"
     screen = type_text(controller, "Pa$$ w")
@@ -488,6 +498,74 @@ def test_start_a_new_season(services, clock):
     assert controller.attendance.currently_signed_in() == []
     stats = controller.attendance.user_stats(users.get_by_code("B001")["id"])
     assert stats.total_text.startswith("0h")
+
+
+def test_wifi_enterprise_sign_in(services):
+    controller, _users, jobs, published, system = make(services)
+    press(controller, "*2468#33")
+    jobs.run()
+    screen = press(controller, "3")                           # eduroam: username first
+    assert screen.title == "Username for eduroam" and screen.keyboard == "text"
+    screen = type_text(controller, "bob@school.ca\n")
+    assert screen.title == "Password for eduroam" and controller.state == kc.WIFI_FIELD
+    screen = type_text(controller, "s3cret pw")
+    assert screen.entry == "••••••••w_"
+    screen = type_text(controller, "\n")
+    assert screen.title == "Sign in to eduroam" and controller.state == kc.WIFI_LOGIN
+    assert screen.lines[:5] == ["1  Username: bob@school.ca", "2  Password: •••••••••",
+                                "3  Sign-in method: PEAP (MSCHAPv2)",
+                                "4  Anonymous identity: none",
+                                "5  Check the server certificate: no"]
+    screen = press(controller, "3")                           # cycles the method
+    assert screen.lines[2] == "3  Sign-in method: TTLS (PAP)"
+    screen = press(controller, "5")                           # certificate check adds a domain
+    assert screen.lines[4:6] == ["5  Check the server certificate: yes", "6  Server domain: any"]
+    press(controller, "6")
+    type_text(controller, "school.ca\n")
+    screen = press(controller, "4")
+    assert screen.title == "Anonymous identity for eduroam"
+    type_text(controller, "anon@school.ca\n")
+    system.connect_error = "Wrong username or password, or the network refused it."
+    screen = press(controller, "#")
+    assert screen.title == "Connecting to eduroam…"
+    jobs.run()
+    screen = published.pop()                                  # back to the form, all kept
+    assert screen.title == "Sign in to eduroam" and screen.tone == "error"
+    assert screen.lines[0] == system.connect_error
+    ssid, login = system.connected[-1]
+    assert (ssid, login.username, login.password, login.method) == (
+        "eduroam", "bob@school.ca", "s3cret pw", "ttls-pap")
+    assert (login.anonymous_identity, login.check_cert, login.domain) == (
+        "anon@school.ca", True, "school.ca")
+    system.connect_error = None
+    screen = press(controller, "2")                           # password: empty keeps it
+    assert screen.entry == "_" and "keep" in screen.lines[0]
+    press(controller, "#")
+    press(controller, "1")
+    assert controller.buffer == "bob@school.ca"               # the old username, to edit
+    type_text(controller, "\b\b\b.co.uk\n")
+    press(controller, "#")
+    jobs.run()
+    assert published.pop().title == "Wi-Fi connected"
+    _ssid, login = system.connected[-1]
+    assert (login.username, login.password) == ("bob@school.co.uk", "s3cret pw")
+
+
+def test_wifi_enterprise_needs_username_and_password(services):
+    controller, _users, jobs, _published, system = make(services)
+    press(controller, "*2468#33")
+    jobs.run()
+    press(controller, "3")
+    type_text(controller, "\n")                              # no username
+    type_text(controller, "\n")                              # no password
+    screen = press(controller, "#")
+    assert screen.lines[0] == "Type the username first." and screen.tone == "error"
+    press(controller, "1")
+    type_text(controller, "bob\n")
+    screen = press(controller, "#")
+    assert screen.lines[0] == "Type the password first." and system.connected == []
+    press(controller, "*")                                    # back
+    assert controller.state == kc.WIFI_LIST
 
 
 def test_wifi_switched_off_is_switched_on(services):

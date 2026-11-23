@@ -34,6 +34,7 @@ REPO_DIR = Path(__file__).resolve().parents[2]     # same as updates.REPO_DIR
 NMCLI_MISSING = "Wi-Fi setup needs NetworkManager (nmcli), which this Pi doesn't have."
 WIFI_OFF = "Wi-Fi is turned off on this Pi."
 WRONG_PASSWORD = "Wrong Wi-Fi password, or the network refused it."
+WRONG_LOGIN = "Wrong username or password, or the network refused it."
 NETWORK_GONE = "Couldn't find that network any more."
 NOT_ALLOWED = "The kiosk isn't allowed to change Wi-Fi on this Pi."
 
@@ -61,6 +62,16 @@ _PERMISSION_HINTS = ("not authorized", "insufficient privileges")
 _WRONG_PASSWORD_HINTS = ("secrets were required", "no suitable secrets",
                          "802-11-wireless-security.")
 _GONE_HINTS = ("no network with ssid", "network could not be found")
+# A failed enterprise sign-in: the server turned the login down (or wanted more).
+_WRONG_LOGIN_HINTS = ("secrets were required", "no suitable secrets", "802.1x", "supplicant")
+
+# Enterprise (802.1X) sign-in methods: key -> (words on screen, eap, phase2-auth).
+# PEAP with MSCHAPv2 is what eduroam and most schools use, so it comes first.
+EAP_METHODS = {
+    "peap": ("PEAP (MSCHAPv2)", "peap", "mschapv2"),
+    "ttls-pap": ("TTLS (PAP)", "ttls", "pap"),
+    "ttls-mschapv2": ("TTLS (MSCHAPv2)", "ttls", "mschapv2"),
+}
 _POLKIT_HINTS = ("authentication required", "access denied", "not authorized")
 
 
@@ -79,6 +90,25 @@ class WifiNetwork:
     signal: int        # 0-100
     secured: bool
     in_use: bool
+    enterprise: bool = False   # WPA2/WPA3 Enterprise (802.1X): needs a username too
+    label: str = ""            # "open", "WPA2", "WPA3", "enterprise"... for the list
+
+    @property
+    def kind(self) -> str:
+        """Short security name for the list."""
+        return self.label or ("enterprise" if self.enterprise
+                              else "locked" if self.secured else "open")
+
+
+@dataclass
+class EnterpriseLogin:
+    """What an enterprise network (eduroam, a school's Wi-Fi) asks for."""
+    username: str = ""
+    password: str = ""
+    method: str = "peap"            # a key of EAP_METHODS
+    anonymous_identity: str = ""    # outer name some networks want, e.g. "anonymous@school.ca"
+    check_cert: bool = False        # check the server against the Pi's trusted certificates
+    domain: str = ""                # with check_cert: the server's name must end with this
 
 
 class _Result(NamedTuple):
@@ -245,6 +275,62 @@ class SystemActions:
         log.info("Wi-Fi: couldn't connect to %r: %s", ssid, message)
         raise SystemActionError(message)
 
+    def wifi_connect_enterprise(self, ssid: str, login: EnterpriseLogin) -> str:
+        """Join a WPA2/WPA3 Enterprise network with a username and password.
+
+        Returns the Pi's IP address, "" if unknown. `nmcli device wifi connect` can't
+        do 802.1X, so this makes the profile itself, then brings it up.
+        """
+        if not ssid:
+            raise SystemActionError("Pick a Wi-Fi network first.")
+        if not login.username.strip():
+            raise SystemActionError("Type the username first.")
+        if not login.password:
+            raise SystemActionError("Type the password first.")
+        if any(ch in login.password for ch in "\r\n"):
+            raise SystemActionError("The password can't have line breaks.")
+        _label, eap, phase2 = EAP_METHODS.get(login.method, EAP_METHODS["peap"])
+        saved = self._saved_connections()
+        if saved is not None and ssid in saved:
+            # An old profile (another password, or a home-style one) would get in the way.
+            self._nmcli(["nmcli", "connection", "delete", "id", ssid], 15)
+        log.info("Wi-Fi: connecting to %r (enterprise, %s)", ssid, login.method)
+        # Everything but the password goes on the command line.
+        add = ["nmcli", "connection", "add", "type", "wifi", "con-name", ssid, "ssid", ssid,
+               "autoconnect", "yes", "wifi-sec.key-mgmt", "wpa-eap",
+               "802-1x.eap", eap, "802-1x.phase2-auth", phase2,
+               "802-1x.identity", login.username.strip(),
+               "802-1x.anonymous-identity", login.anonymous_identity.strip(),
+               "802-1x.password-flags", "0",          # 0: NetworkManager keeps the password
+               "802-1x.system-ca-certs", "yes" if login.check_cert else "no",
+               "802-1x.domain-suffix-match",
+               login.domain.strip() if login.check_cert else ""]
+        result = self._nmcli(add, 15)
+        if result.code == 0:
+            # The password goes in through nmcli's editor on stdin, so no other
+            # program on the Pi can see it (a command-line argument shows in ps).
+            # (The editor drops spaces at the very start and end of a password.)
+            script = f"set 802-1x.password {login.password}\nsave persistent\nquit\n"
+            edit = ["nmcli", "connection", "edit", "id", ssid]
+            result = self._nmcli(edit, 15, script)
+            if (result.code == 0 and "successfully updated" not in result.out.lower()
+                    and _mentions(result, _PERMISSION_HINTS)):
+                result = self._exec(["sudo", "-n", *edit], 15, script)  # it exits 0 anyway
+            if result.code != 0 or "successfully updated" not in result.out.lower():
+                # Its output repeats what it was given, so it's never shown or logged.
+                result = _Result(1, "", "Couldn't save the Wi-Fi password.")
+        if result.code == 0:
+            result = self._nmcli(["nmcli", "--wait", "30", "connection", "up", "id", ssid], 45)
+        if result.code == 0:
+            ip = _quiet(self._ip) or ""
+            log.info("Wi-Fi: connected to %r, IP %s", ssid, ip or "unknown")
+            return ip
+        # Don't keep a profile that doesn't work: the Pi would retry it at every boot.
+        self._nmcli(["nmcli", "connection", "delete", "id", ssid], 15)
+        message = _connect_error(result, login.password, enterprise=True)
+        log.info("Wi-Fi: couldn't connect to %r: %s", ssid, message)
+        raise SystemActionError(message)
+
     def _saved_connections(self) -> set[str] | None:
         """Names of the network profiles NetworkManager has saved, None if unknown."""
         result = self._exec(["nmcli", "-t", "-f", "NAME", "connection", "show"], 10)
@@ -334,8 +420,9 @@ def _parse_scan(output: str) -> list[WifiNetwork]:
         if len(fields) != 4 or fields[1].strip() in ("", "--"):
             continue        # a hidden network (no name), or a line we don't understand
         in_use, ssid, signal, security = fields
-        network = WifiNetwork(ssid, _signal(signal), security.strip() not in ("", "--"),
-                              in_use.strip() == "*")
+        kind = _security_label(security)
+        network = WifiNetwork(ssid, _signal(signal), kind != "open", in_use.strip() == "*",
+                              kind == "enterprise", kind)
         seen = found.get(ssid)
         if seen is None:
             found[ssid] = network
@@ -344,8 +431,24 @@ def _parse_scan(output: str) -> list[WifiNetwork]:
         seen.signal = max(seen.signal, network.signal)
         seen.in_use = seen.in_use or network.in_use
         seen.secured = seen.secured or network.secured
+        if network.enterprise and not seen.enterprise:
+            seen.enterprise, seen.label = True, network.label
     # Sort: the network in use first (False sorts before True), then strongest, then A-Z.
     return sorted(found.values(), key=lambda n: (not n.in_use, -n.signal, n.ssid.lower()))
+
+
+def _security_label(security: str) -> str:
+    """nmcli's SECURITY ("WPA1 WPA2", "WPA2 802.1X", "WPA3", "OWE", "") -> a short name."""
+    parts = security.upper().split()
+    if "802.1X" in parts:
+        return "enterprise"     # WPA2/WPA3 Enterprise: username and password
+    for name in ("WPA3", "WPA2", "WEP"):
+        if name in parts:
+            return name
+    if "WPA1" in parts:
+        return "WPA"
+    # "OWE" (Enhanced Open) is encrypted but has no password; "--" or "" is open.
+    return "open" if not parts or parts in (["--"], ["OWE"]) else "locked"
 
 
 def _signal(text: str) -> int:
@@ -371,14 +474,16 @@ def _scan_error(result: _Result) -> str:
     return f"Wi-Fi scan failed: {_short(result.err or result.out, 60) or 'unknown error'}"
 
 
-def _connect_error(result: _Result, password: str | None) -> str:
+def _connect_error(result: _Result, password: str | None, enterprise: bool = False) -> str:
     """A short on-screen reason for a failed connect (never containing the password)."""
     if result.code == NOT_FOUND:
         return NMCLI_MISSING
     if result.code == TIMED_OUT or _mentions(result, ("timeout expired",)):
         return "The network didn't answer in time. Try again."
-    if _mentions(result, ("802-1x",)):
-        return "That network needs a username too (enterprise Wi-Fi); not supported."
+    if enterprise and _mentions(result, _WRONG_LOGIN_HINTS):
+        return WRONG_LOGIN
+    if not enterprise and _mentions(result, ("802-1x",)):
+        return "That network needs a username too (enterprise Wi-Fi)."
     if _mentions(result, _WRONG_PASSWORD_HINTS):
         return WRONG_PASSWORD if password else "That network needs a password."
     if _mentions(result, _GONE_HINTS):
