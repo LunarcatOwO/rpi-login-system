@@ -73,6 +73,7 @@ PICK_TEAM = "pick_team"       # a team is chosen (legacy card's owner, or admin 
 RENAME_ID = "rename_id"
 RENAME_NAME = "rename_name"
 ACTIVE_ID = "active_id"       # whom to deactivate / reactivate
+DELETE_ID = "delete_id"       # whom to delete for good
 # Hours
 ADJUST_ID = "adjust_id"
 ADJUST_AMOUNT = "adjust_amount"
@@ -90,7 +91,7 @@ ADMINPIN_AGAIN = "adminpin_again"
 CONFIRM = "confirm"           # "#  do it   *  back" for the action in context["action"]
 
 ID_STATES = (USER_ID, ENROLL_ID, ADJUST_ID, MOVE_ID, UNCARD_ID, RENAME_ID, ACTIVE_ID,
-             TOGGLE_ID)
+             TOGGLE_ID, DELETE_ID)
 PIN_STATES = (ADMIN_PIN, ADMINPIN_NEW, ADMINPIN_AGAIN, SEASON_PIN, ADMINPIN_OLD)
 NAME_STATES = (NEW_NAME, RENAME_NAME)
 TEXT_STATES = (*NAME_STATES, WIFI_PASSWORD)
@@ -100,7 +101,7 @@ BACK = {
     PEOPLE_MENU: ADMIN_MENU, HOURS_MENU: ADMIN_MENU, SYSTEM_MENU: ADMIN_MENU,
     NEW_TEAM: PEOPLE_MENU, ENROLL_ID: PEOPLE_MENU, UNCARD_ID: PEOPLE_MENU,
     MOVE_ID: PEOPLE_MENU, RENAME_ID: PEOPLE_MENU,
-    ACTIVE_ID: PEOPLE_MENU, OFF_LIST: PEOPLE_MENU, NEW_NAME: NEW_TEAM, RENAME_NAME: RENAME_ID,
+    ACTIVE_ID: PEOPLE_MENU, DELETE_ID: PEOPLE_MENU, OFF_LIST: PEOPLE_MENU, NEW_NAME: NEW_TEAM, RENAME_NAME: RENAME_ID,
     ADJUST_ID: HOURS_MENU, TOGGLE_ID: HOURS_MENU, SEASON_PIN: HOURS_MENU, HERE_LIST: HOURS_MENU,
     PAST_LIST: HOURS_MENU, PAST_SEASON: PAST_LIST,
     ADJUST_AMOUNT: ADJUST_ID,
@@ -130,6 +131,7 @@ PEOPLE_MENU_LINES = [
     "5  Rename someone",
     "6  Deactivate / reactivate",
     "7  List deactivated people",
+    "8  Delete someone",
     "*  Back",
 ]
 HOURS_MENU_LINES = [
@@ -509,8 +511,8 @@ class KioskController:
         code, self.buffer = self.buffer, ""
         try:
             user = self.users.get_by_code(code)
-            # Only "Deactivate / reactivate" works on someone who's switched off.
-            if not user["is_active"] and self.state != ACTIVE_ID:
+            # Only "Deactivate / reactivate" and "Delete" work on someone who's switched off.
+            if not user["is_active"] and self.state not in (ACTIVE_ID, DELETE_ID):
                 raise UserError(f"{user['code']} is deactivated.")
         except UserError as exc:
             return self._error_keep_state(str(exc))
@@ -529,6 +531,8 @@ class KioskController:
             return self._confirm("remove_cards", PEOPLE_MENU, user=user, uids=uids)
         if self.state == ACTIVE_ID:
             return self._confirm("toggle_active", PEOPLE_MENU, user=user)
+        if self.state == DELETE_ID:
+            return self._confirm("delete_user", PEOPLE_MENU, user=user)
         if self.state == RENAME_ID:
             self.state = RENAME_NAME
             self.buffer = user["username"][:MAX_NAME]   # edit the current name
@@ -641,7 +645,7 @@ class KioskController:
     def _people_choice(self, key: str) -> Screen | None:
         """People menu: each number starts that task."""
         state = {"1": NEW_TEAM, "2": ENROLL_ID, "3": UNCARD_ID, "4": MOVE_ID,
-                 "5": RENAME_ID, "6": ACTIVE_ID}.get(key)
+                 "5": RENAME_ID, "6": ACTIVE_ID, "8": DELETE_ID}.get(key)
         if key == "7":
             return self._go(OFF_LIST, {"page": 0})
         return self._go(state, {}) if state else None
@@ -721,9 +725,13 @@ class KioskController:
 
     def _confirm_key(self, key: str) -> Screen | None:
         """# on a confirm screen: do the action that was asked about."""
+        ctx, action = self.context, self.context["action"]
+        # Delete takes D, not #: a # typed out of habit after a full ID
+        # (which already submitted itself) mustn't erase anyone.
+        if action == "delete_user":
+            return self._delete_user(ctx["user"]) if key == "D" else None
         if key != "#":
             return None
-        ctx, action = self.context, self.context["action"]
         if action == "sign_out_all":
             self._reset()
             count = self.attendance.sign_out_everyone()
@@ -773,6 +781,18 @@ class KioskController:
         return self._result(f"{user['username']} reactivated",
                             [f"{user['code']} and their cards work again."], "success",
                             refresh=True)
+
+    def _delete_user(self, user: dict) -> Screen:
+        """People > 8: erase someone, after the red confirm."""
+        self._reset()
+        try:
+            self.users.delete(user["id"])
+        except UserError as exc:
+            return self._result("Not deleted", [str(exc)], "error")
+        return self._result(f"{user['username']} deleted", [
+            f"{user['code']}, their cards and their hours are gone.",
+            f"The ID {user['code']} can be given to someone new.",
+        ], "success", refresh=True)
 
     def _admin_toggle(self, user: dict) -> Screen:
         """Hours > 2: sign someone in or out without a PIN."""
@@ -1253,6 +1273,7 @@ class KioskController:
                      ADJUST_ID: "Adjust hours: user ID", MOVE_ID: "Change team: user ID",
                      UNCARD_ID: "Remove cards: user ID", RENAME_ID: "Rename: user ID",
                      ACTIVE_ID: "Deactivate / reactivate: user ID",
+                     DELETE_ID: "Delete someone: user ID",
                      TOGGLE_ID: "Sign in or out: user ID"}[state]
             # Show the typed part plus a _ for each character still to come: A0__
             length = ids.code_length(self.buffer) if self.buffer else ids.DIGITS + 1
@@ -1328,6 +1349,12 @@ class KioskController:
             return Screen(f"Reactivate {user['username']}?", [
                 f"{user['code']} and their cards work again.",
                 "", "#  reactivate      *  back"], "prompt")
+        if action == "delete_user":
+            user = ctx["user"]
+            return Screen(f"Delete {user['username']} for good?", [
+                f"{user['code']}, their cards and hours in every season are erased.",
+                "This can't be undone. To keep their hours, deactivate instead.",
+                "", "D  delete      *  back"], "error", sound="warning")
         title, lines = {
             "restart_app": ("Restart the kiosk app?", ["It's back in a few seconds."]),
             "close_app": ("Close the kiosk app?", [

@@ -429,6 +429,47 @@ def test_deactivate_and_reactivate(services, clock):
     assert controller.handle_card("04AA").title == "Welcome, Taylor!"
 
 
+def test_delete_someone(services, db, clock):
+    controller, users, _jobs, _published, _system = make(services)
+    users.enroll_tag("04AA", users.add("Taylor", "D")["id"])
+    users.add("Morgan", "D")
+    controller.handle_card("04AA")
+    clock.advance(hours=1)
+    controller.handle_card("04AA")
+    assert "8  Delete someone" in press(controller, "*2468#1").lines
+    screen = press(controller, "8D001")
+    assert screen.title == "Delete Taylor for good?" and screen.tone == "error"
+    assert press(controller, "*").title == "People"             # back: nothing deleted
+    press(controller, "8D001")
+    press(controller, "#")
+    assert controller.state == kc.CONFIRM                       # # does nothing here
+    assert press(controller, "D").title == "Taylor deleted"
+    with db.transaction() as cur:
+        for table in ("tags", "sessions"):
+            cur.execute(f"SELECT COUNT(*) AS n FROM {table}")
+            assert cur.fetchone()["n"] == 0
+    assert [u["username"] for u in users.list(include_inactive=True)] == ["Morgan"]
+    users.set_active("D002", False)                              # deactivated: still deletable
+    press(controller, "*2468#1")
+    assert press(controller, "8D002#").title == "Delete Morgan for good?"   # stray # is safe
+    assert press(controller, "D").title == "Morgan deleted"
+
+
+def test_cli_delete_asks_to_type_delete(services, monkeypatch):
+    from argparse import Namespace
+
+    from nfc_login.admin import cli
+    _attendance, _seasons, users = services
+    users.add("Drew Hale", "A")
+    s = Namespace(users=users)
+    monkeypatch.setattr("builtins.input", lambda _prompt: "no")
+    cli.cmd_user_delete(s, Namespace(code="A001", yes=False), None)
+    assert users.get_by_code("A001")
+    monkeypatch.setattr("builtins.input", lambda _prompt: "DELETE")
+    cli.cmd_user_delete(s, Namespace(code="A001", yes=False), None)
+    assert users.list(include_inactive=True) == []
+
+
 def test_start_a_new_season(services, clock):
     controller, users, _jobs, _published, _system = make(services)
     users.enroll_tag("04AA", users.add("Taylor", "B")["id"])
